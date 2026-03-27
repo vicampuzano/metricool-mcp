@@ -1,6 +1,8 @@
 # Metricool MCP Server
 
-Remote [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server for the [Metricool](https://metricool.com) social media management platform. It lets AI assistants like Claude schedule posts, query analytics, and manage brands on behalf of authenticated Metricool users.
+Remote [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server for [Metricool](https://metricool.com), the all-in-one social media management, scheduling, and analytics platform. Connect Claude to your Metricool account to manage social media, plan and schedule posts, analyze performance across all your social networks, and generate social media reports — all through natural conversation.
+
+With this connector you can manage **Instagram**, **Facebook**, **X (Twitter)**, **LinkedIn**, **TikTok**, **YouTube**, **Pinterest**, **Twitch**, **Bluesky**, **Threads**, **Google My Business**, **Facebook Ads**, and **TikTok Ads** directly from Claude.
 
 **Endpoint:** `https://mcp.metricool.ai/mcp`
 **Transport:** Streamable HTTP
@@ -10,16 +12,37 @@ Remote [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server f
 
 ## Features
 
-| Capability | Tools |
-|---|---|
-| **Brand management** | Retrieve brand settings and connected social accounts |
-| **Post scheduling** | Create and update scheduled posts across 10+ social networks |
-| **Smart timing** | Get AI-powered best-time-to-post recommendations per network |
-| **Analytics** | Browse available metrics and pull analytical data by date range |
+### Schedule and plan social media content
 
-### Supported social networks
+Create, edit, and manage scheduled posts across all your connected social networks from a single conversation. Plan your social media calendar by asking Claude to schedule content on Instagram, Facebook, X (Twitter), LinkedIn, TikTok, YouTube, Pinterest, Twitch, Bluesky, or Threads — including network-specific formats like Instagram Reels, Instagram Stories, YouTube Shorts, Facebook Reels, LinkedIn polls, and TikTok videos.
 
-Instagram, Facebook, X (Twitter), LinkedIn, TikTok, YouTube, Pinterest, Twitch, Bluesky, and Threads.
+### Best time to post
+
+Get AI-powered recommendations for the optimal posting time on each social network based on your audience's historical engagement data. Ask Claude when to post on Instagram, TikTok, LinkedIn, or any other network, and it will find the highest-scoring time slots for maximum reach and engagement.
+
+### Social media analytics and reports
+
+Pull detailed analytics and generate social media reports for any date range. Track followers, reach, engagement, impressions, clicks, and hundreds of other metrics across Instagram analytics, Facebook analytics, X (Twitter) analytics, LinkedIn analytics, TikTok analytics, YouTube analytics, Pinterest analytics, Google My Business insights, Facebook Ads performance, and TikTok Ads campaigns.
+
+### Brand and account management
+
+View all your connected brands, social accounts, competitor tracking settings, and timezone configuration. Supports multi-brand setups for agencies and teams managing multiple social media accounts.
+
+### Supported social networks and platforms
+
+| Network | Scheduling | Analytics | Ads |
+|---|---|---|---|
+| Instagram | Posts, Reels, Stories, Carousels | ✅ | — |
+| Facebook | Posts, Reels, Stories | ✅ | Facebook Ads ✅ |
+| X (Twitter) | Posts | ✅ | — |
+| LinkedIn | Posts, Polls, PDF carousels | ✅ | — |
+| TikTok | Videos, Photo carousels | ✅ | TikTok Ads ✅ |
+| YouTube | Videos, Shorts | ✅ | — |
+| Pinterest | Pins | ✅ | — |
+| Twitch | — | ✅ | — |
+| Bluesky | Posts | ✅ | — |
+| Threads | Posts | ✅ | — |
+| Google My Business | — | ✅ | — |
 
 ---
 
