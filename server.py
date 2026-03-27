@@ -42,7 +42,13 @@ mcp = FastMCP(
     transport_security=TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
         allowed_hosts=["mcp.metricool.ai", "127.0.0.1:*", "localhost:*"],
-        allowed_origins=["https://mcp.metricool.ai", "http://127.0.0.1:*", "http://localhost:*"],
+        allowed_origins=[
+            "https://mcp.metricool.ai",
+            "https://claude.ai",
+            "https://claude.com",
+            "http://127.0.0.1:*",
+            "http://localhost:*",
+        ],
     ),
 )
 
@@ -170,7 +176,7 @@ The date cannot be in the past. DO NOT modify the text on error — just notify 
     annotations=ToolAnnotations(
         title="Create Scheduled Post",
         readOnlyHint=False,
-        destructiveHint=False,
+        destructiveHint=True,
         idempotentHint=False,
         openWorldHint=True,
     ),
@@ -228,7 +234,7 @@ The date cannot be in the past. Do not retry on error.""",
     annotations=ToolAnnotations(
         title="Update Scheduled Post",
         readOnlyHint=False,
-        destructiveHint=False,
+        destructiveHint=True,
         idempotentHint=True,
         openWorldHint=True,
     ),

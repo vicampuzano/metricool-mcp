@@ -66,7 +66,7 @@ async def oauth_protected_resource(request: Request) -> JSONResponse:
             "authorization_servers": [ISSUER],
             "scopes_supported": ["mcp:read", "mcp:write"],
             "bearer_methods_supported": ["header"],
-            "resource_documentation": "",
+            "resource_documentation": "https://metricool.com/integrations/mcp",
             "resource_policy_uri": "https://metricool.com/privacy-policy/",
             "resource_tos_uri": "https://metricool.com/legal-terms/",
         }
