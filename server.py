@@ -352,7 +352,13 @@ from middleware import BearerAuthMiddleware  # noqa: E402
 from oauth import OAUTH_ROUTES  # noqa: E402
 from starlette.applications import Starlette  # noqa: E402
 from starlette.middleware.trustedhost import TrustedHostMiddleware  # noqa: E402
-from starlette.routing import Mount  # noqa: E402
+from starlette.requests import Request  # noqa: E402
+from starlette.responses import JSONResponse  # noqa: E402
+from starlette.routing import Mount, Route  # noqa: E402
+
+
+async def _health(request: Request) -> JSONResponse:
+    return JSONResponse({"status": "ok"})
 
 # Combine FastMCP's streamable-HTTP handler with the OAuth discovery routes
 # into a single Starlette app.
@@ -373,6 +379,7 @@ async def _lifespan(app):
 _combined = Starlette(
     routes=[
         *OAUTH_ROUTES,
+        Route("/health", _health),
         Mount("/", app=_mcp_asgi),
     ],
     lifespan=_lifespan,
