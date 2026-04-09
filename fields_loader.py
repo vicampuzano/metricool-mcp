@@ -58,4 +58,11 @@ def filter_fields(
         f for f in result
         if not f.get("metricLabel", "").lower().startswith("deprecated")
     ]
-    return [{**f, "compatibilityGroup": _compatibility_group(f)} for f in result]
+    return [
+        {
+            **f,
+            "compatibilityGroup": _compatibility_group(f),
+            "fieldType": "dimension" if not f.get("dataAggregation") else "metric",
+        }
+        for f in result
+    ]

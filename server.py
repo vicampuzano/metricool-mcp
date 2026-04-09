@@ -274,7 +274,34 @@ def update_scheduled_post(
     description=(
         "Retrieves the list of available metrics for a specific social network and connector. "
         "Only active (non-deprecated) metrics are returned. "
-        "Always call this BEFORE get_analytics_data_by_metrics to discover valid field IDs."
+        "Always call this BEFORE get_analytics_data_by_metrics to discover valid field IDs.\n\n"
+        "How to choose the right connector:\n"
+        "- 'evolution': Account-level daily aggregates over time (followers, reach, impressions, "
+        "engagement). Best for timelines, trends, and account performance summaries.\n"
+        "- 'posts', 'reels', 'stories', 'videos': Individual content performance (per-post "
+        "metrics like likes, comments, reach). Best for analyzing specific publications. "
+        "Each content type is a separate connector — e.g. for Instagram use 'posts' for feed "
+        "posts, 'reels' for Reels, 'stories' for Stories.\n"
+        "- 'competitors': Competitor account-level data.\n"
+        "- 'competitor posts', 'competitor reels', 'competitor videos': Competitor content-level data.\n"
+        "- 'campaigns', 'ads': Ad platform campaign/ad-level data (Meta Ads, Google Ads, TikTok Ads).\n"
+        "- 'country', 'age and gender', 'demographic': Audience demographics.\n"
+        "- 'hashtags': Hashtag performance (Instagram).\n"
+        "- 'keywords': Search keyword data (Google Business Profile, Google Ads).\n"
+        "- 'traffic source', 'sources', 'pages': Website traffic breakdowns.\n\n"
+        "Examples:\n"
+        "- 'How did my Instagram grow this month?' → network=instagram, connector=evolution\n"
+        "- 'Which of my Instagram posts performed best?' → network=instagram, connector=posts\n"
+        "- 'Show me my Instagram Reels performance' → network=instagram, connector=reels\n"
+        "- 'Compare followers across all my networks' → connector=evolution (no network filter)\n\n"
+        "Each returned field has a fieldType ('dimension' or 'metric'):\n"
+        "- Dimensions: descriptive attributes (date, post text, image URL, post URL, type). "
+        "Include only the dimensions the user actually needs.\n"
+        "- Metrics: numeric values that can be aggregated (likes, reach, engagement, comments).\n"
+        "When the user asks for aggregated stats or rankings, request only the relevant metrics "
+        "plus minimal dimensions (e.g. date). Do NOT request text content, images, or URLs "
+        "unless the user wants to see individual post details.\n"
+        "If the user's request is ambiguous, confirm which metrics matter before fetching data."
     ),
     annotations=ToolAnnotations(
         title="Get Available Analytics Metrics",
@@ -293,11 +320,15 @@ def get_analytics_available_metrics(
         network: Network name. Values: bluesky, googleBusinessProfile, metaAds, threads,
             facebookAds, facebook, instagram, linkedin, pinterest, tiktok, tiktokAds,
             twitter, twitch, youtube, brandInfo, website, brandSummary.
-        connector: Connector type. Values: evolution, posts, reels, stories, competitors,
-            hashtags, campaigns, age, gender, country, demographic, traffic source, info,
-            competitor posts, competitor reels, competitor videos, videos, keywords, sources,
-            pages, reach distribution, photos, ads, posts & photos, promoted reels,
-            promoted posts. Do not combine connectors. For TikTok videos use "posts".
+        connector: Connector type. Determines the level of data granularity.
+            Account-level over time: evolution.
+            Content-level (per post/video): posts, reels, stories, videos, photos, posts & photos.
+            Competitors: competitors, competitor posts, competitor reels, competitor videos.
+            Ads: campaigns, ads, promoted reels, promoted posts.
+            Demographics: age and gender, gender, country, demographic, reach distribution.
+            Website: traffic source, sources, pages, keywords.
+            Other: hashtags, info.
+            Do not combine connectors in one call. For TikTok videos use "posts".
     """
     logger.info("get_analytics_available_metrics called: network=%s connector=%s", network, connector)
     fields = load_fields()
@@ -321,7 +352,14 @@ def get_analytics_available_metrics(
         "- If you need metrics from different non-evolution groups (e.g. Facebook Posts AND "
         "Instagram Reels), make separate calls for each group.\n"
         "The server auto-splits incompatible fields into separate API calls and returns results "
-        "grouped, but for clarity always prefer sending compatible fields together."
+        "grouped, but for clarity always prefer sending compatible fields together.\n\n"
+        "EFFICIENCY — select only the fields you need:\n"
+        "- For summaries or rankings, request only metric fields (likes, reach, engagement) "
+        "plus a date dimension. Do NOT include text content, image URLs, or post URLs.\n"
+        "- Include content dimensions (text, image, URL) only when the user wants to see "
+        "or identify specific posts.\n"
+        "- For evolution data, request only the specific metrics relevant to the user's question "
+        "— not all available evolution metrics."
     ),
     annotations=ToolAnnotations(
         title="Get Analytics Data",
