@@ -58,11 +58,14 @@ def filter_fields(
         f for f in result
         if not f.get("metricLabel", "").lower().startswith("deprecated")
     ]
+    # Return only fields the LLM needs — keep the response lean to save tokens
     return [
         {
-            **f,
-            "compatibilityGroup": _compatibility_group(f),
+            "fieldId": f.get("fieldId", ""),
+            "label": f.get("metricLabel", ""),
+            "description": f.get("description", ""),
             "fieldType": "dimension" if not f.get("dataAggregation") else "metric",
+            "compatibilityGroup": _compatibility_group(f),
         }
         for f in result
     ]
