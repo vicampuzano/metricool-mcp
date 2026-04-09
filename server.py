@@ -102,11 +102,36 @@ def get_brand_settings() -> dict:
                 "id": b.get("id"),
                 "label": b.get("label"),
                 "timezone": b.get("timezone"),
-                "connectedNetworks": list((b.get("networksData") or {}).keys()),
+                "connectedNetworks": _clean_network_names(b.get("networksData") or {}),
             }
             for b in brands
         ]
     return result
+
+
+# Map raw API keys from networksData to the network names used in analytics tools
+_NETWORK_KEY_MAP = {
+    "facebookData": "facebook",
+    "instagramData": "instagram",
+    "twitterData": "twitter",
+    "linkedinData": "linkedin",
+    "youtubeData": "youtube",
+    "tiktokData": "tiktok",
+    "twitchData": "twitch",
+    "pinterestData": "pinterest",
+    "threadsData": "threads",
+    "blueskyData": "bluesky",
+    "webData": "website",
+    "gbpData": "googleBusinessProfile",
+    "facebookAdsData": "facebookAds",
+    "googleAdsData": "googleAds",
+    "tiktokAdsData": "tiktokAds",
+}
+
+
+def _clean_network_names(networks_data: dict) -> list[str]:
+    """Convert raw API keys to the network names accepted by analytics tools."""
+    return [_NETWORK_KEY_MAP.get(k, k) for k in networks_data]
 
 
 # ---------------------------------------------------------------------------
