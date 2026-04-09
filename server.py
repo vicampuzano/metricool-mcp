@@ -94,6 +94,18 @@ def get_brand_settings() -> dict:
     logger.info("get_brand_settings called")
     result = MetricoolClient(get_api_key()).get_brands()
     logger.info("get_brand_settings result: %s", result)
+    # Trim response to only what the LLM needs — saves ~60% tokens
+    brands = result.get("data", result) if isinstance(result, dict) else result
+    if isinstance(brands, list):
+        return [
+            {
+                "id": b.get("id"),
+                "label": b.get("label"),
+                "timezone": b.get("timezone"),
+                "connectedNetworks": list((b.get("networksData") or {}).keys()),
+            }
+            for b in brands
+        ]
     return result
 
 
@@ -295,6 +307,9 @@ def update_scheduled_post(
         "Retrieves the list of available metrics for a specific social network and connector. "
         "Only active (non-deprecated) metrics are returned. "
         "Always call this BEFORE get_analytics_data_by_metrics to discover valid field IDs.\n\n"
+        "IMPORTANT: Always provide BOTH network AND connector to keep the response small. "
+        "If you need multiple connectors (e.g. evolution + posts), make separate calls. "
+        "Never call without a connector — the full list is too large and wastes tokens.\n\n"
         "How to choose the right connector:\n"
         "- 'evolution': Account-level daily aggregates over time (followers, reach, impressions, "
         "engagement). Best for timelines, trends, and account performance summaries.\n"
