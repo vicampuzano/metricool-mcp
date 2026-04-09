@@ -32,15 +32,28 @@ _ANALYTICS_DATE_FMT = "%Y%m%d"
 
 
 def _parse_date(value: str) -> datetime:
-    """Parse an ISO 8601 datetime string (with or without offset)."""
-    # Remove sub-seconds if present, then strip the UTC offset so we can
-    # reformat using strftime without timezone info.
-    clean = value.split(".")[0]  # drop fractional seconds
+    """Parse a date/datetime string in common formats.
+
+    Accepted inputs (most specific first):
+      - 2025-03-15T14:30:00+02:00  (ISO 8601 with offset)
+      - 2025-03-15T14:30:00        (ISO 8601 without offset)
+      - 2025-03-15T14:30+02:00
+      - 2025-03-15T14:30
+      - 2025-03-15 14:30:00        (space separator)
+      - 2025-03-15 14:30
+      - 2025-03-15                  (date only → midnight)
+    """
+    clean = value.strip().split(".")[0]  # drop fractional seconds
     for fmt in (
         "%Y-%m-%dT%H:%M:%S%z",
         "%Y-%m-%dT%H:%M:%S",
         "%Y-%m-%dT%H:%M%z",
         "%Y-%m-%dT%H:%M",
+        "%Y-%m-%d %H:%M:%S%z",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M%z",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d",
     ):
         try:
             return datetime.strptime(clean, fmt)
@@ -177,33 +190,65 @@ class MetricoolClient:
         from_dt = _parse_date(from_date)
         to_dt = _parse_date(to_date)
 
-        # Group field IDs by connector code (chars 2-4 of the 6-char field ID)
-        grouped: dict[str, list[str]] = defaultdict(list)
+        # ------------------------------------------------------------------
+        # Group field IDs into compatible batches.
+        #
+        # Field ID structure: 2-char network + 2-char connector + 2-digit index
+        #   e.g. FBPO01 = Facebook (FB) + Posts (PO) + metric 01
+        #
+        # Rules:
+        #   - EV (evolution) fields can be combined across networks in a
+        #     single call.  They always require the "evdate" dimension.
+        #   - All other fields must share the same 4-char prefix
+        #     (network + connector) to be combined in one call.
+        # ------------------------------------------------------------------
+        ev_fields: list[str] = []
+        non_ev_grouped: dict[str, list[str]] = defaultdict(list)
+
         for fid in field_ids:
-            if len(fid) >= 4:
-                connector_code = fid[2:4]
-                grouped[connector_code].append(fid)
+            if len(fid) >= 4 and fid[2:4].upper() == "EV":
+                ev_fields.append(fid)
+            elif len(fid) >= 4:
+                group_key = fid[:4].upper()
+                non_ev_grouped[group_key].append(fid)
 
-        all_rows: list = []
-        for connector_code, ids in grouped.items():
-            fields = ",".join(ids)
-            if connector_code.upper() == "EV":
-                fields = fields + ",evdate"
+        all_results: list = []
+        api_params_base = {
+            "start": from_dt.strftime(_ANALYTICS_DATE_FMT),
+            "end": to_dt.strftime(_ANALYTICS_DATE_FMT),
+            "blogId": brand_id,
+            "userToken": self._token,
+        }
 
+        # EV fields: single call, add evdate dimension
+        if ev_fields:
+            fields_str = ",".join(ev_fields) + ",evdate"
             rows = self._get(
                 "/api/datastudio/datasets",
-                params={
-                    "fields": fields,
-                    "start": from_dt.strftime(_ANALYTICS_DATE_FMT),
-                    "end": to_dt.strftime(_ANALYTICS_DATE_FMT),
-                    "blogId": brand_id,
-                    "userToken": self._token,
-                },
+                params={**api_params_base, "fields": fields_str},
             )
             if rows:
-                all_rows.extend(rows)
+                all_results.append({
+                    "group": "evolution",
+                    "fields": ev_fields + ["evdate"],
+                    "data": rows,
+                })
 
-        return all_rows
+        # Non-EV fields: one call per 4-char group
+        for group_key, ids in non_ev_grouped.items():
+            fields_str = ",".join(ids)
+            rows = self._get(
+                "/api/datastudio/datasets",
+                params={**api_params_base, "fields": fields_str},
+            )
+            if rows:
+                all_results.append({
+                    "group": group_key,
+                    "fields": ids,
+                    "data": rows,
+                })
+
+        return all_results
 
 
 # ---------------------------------------------------------------------------

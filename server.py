@@ -106,9 +106,9 @@ def get_scheduled_posts(
     """
     Args:
         brand_id: Blog id of the Metricool brand account.
-        from_date: Init date. Format: ISO 8601 (YYYY-MM-DDTHH:MM:SS±HH:MM).
-        to_date: End date. Format: ISO 8601 (YYYY-MM-DDTHH:MM:SS±HH:MM).
-        timezone: IANA timezone identifier. Use the value from get_brand_settings.
+        from_date: Start date and time. Use format YYYY-MM-DDTHH:mm:ss (example: 2025-03-15T00:00:00). Do NOT include timezone offset in the value.
+        to_date: End date and time. Use format YYYY-MM-DDTHH:mm:ss (example: 2025-03-15T23:59:59). Do NOT include timezone offset in the value.
+        timezone: IANA timezone identifier (example: Europe/Madrid). Use the value from get_brand_settings.
         extended_range: When true, search range is expanded one day in each direction. Default false.
     """
     logger.info(
@@ -147,9 +147,9 @@ def get_best_time_to_post_by_network(
     """
     Args:
         brand_id: Blog id of the Metricool brand account.
-        from_date: Init date. Format: ISO 8601 (YYYY-MM-DDTHH:MM:SS±HH:MM).
-        to_date: End date. Format: ISO 8601 (YYYY-MM-DDTHH:MM:SS±HH:MM).
-        timezone: IANA timezone identifier. Use the value from get_brand_settings.
+        from_date: Start date and time. Use format YYYY-MM-DDTHH:mm:ss (example: 2025-03-15T00:00:00). Do NOT include timezone offset in the value.
+        to_date: End date and time. Use format YYYY-MM-DDTHH:mm:ss (example: 2025-03-15T23:59:59). Do NOT include timezone offset in the value.
+        timezone: IANA timezone identifier (example: Europe/Madrid). Use the value from get_brand_settings.
         social_network: Accepted values: "twitter", "facebook", "instagram", "linkedin", "youtube", "tiktok".
     """
     logger.info(
@@ -188,7 +188,7 @@ def create_scheduled_post(
 ) -> dict:
     """
     Args:
-        date: Publication date/time. Format: ISO 8601 (YYYY-MM-DDTHH:MM:SS±HH:MM).
+        date: Publication date/time. Use format YYYY-MM-DDTHH:mm:ss (example: 2025-03-15T14:30:00). Do NOT include timezone offset — timezone is set inside publicationDate in the info JSON.
         blog_id: Blog id of the Metricool brand account.
         info: JSON string with the post data. Required fields:
             providers (list, e.g. [{"network":"twitter"}]),
@@ -273,7 +273,8 @@ def update_scheduled_post(
 @mcp.tool(
     description=(
         "Retrieves the list of available metrics for a specific social network and connector. "
-        "If any metric is deprecated, the tool notifies the user and provides suggested alternatives."
+        "Only active (non-deprecated) metrics are returned. "
+        "Always call this BEFORE get_analytics_data_by_metrics to discover valid field IDs."
     ),
     annotations=ToolAnnotations(
         title="Get Available Analytics Metrics",
@@ -309,7 +310,18 @@ def get_analytics_available_metrics(
     description=(
         "Retrieves analytical data for a specified Metricool account over a given date range, "
         "based on a selected list of metrics. "
-        "Returns the corresponding analytical insights for those fields."
+        "Returns data grouped by compatible metric sets.\n\n"
+        "IMPORTANT — field ID compatibility rules:\n"
+        "Each field ID has 6 characters: 2-char network + 2-char connector + 2-digit index "
+        "(e.g. FBPO01 = Facebook Posts metric 01, IGRE03 = Instagram Reels metric 03).\n"
+        "- Evolution fields (connector = EV, e.g. FBEV01, IGEV17, TWEV03) CAN be combined "
+        "across different networks in one call. They are ideal for timelines.\n"
+        "- All other fields MUST share the same 4-char prefix (network+connector) in one call. "
+        "For example: FBPO01 + FBPO03 is valid, but FBPO01 + IGPO01 is NOT.\n"
+        "- If you need metrics from different non-evolution groups (e.g. Facebook Posts AND "
+        "Instagram Reels), make separate calls for each group.\n"
+        "The server auto-splits incompatible fields into separate API calls and returns results "
+        "grouped, but for clarity always prefer sending compatible fields together."
     ),
     annotations=ToolAnnotations(
         title="Get Analytics Data",
@@ -328,9 +340,9 @@ def get_analytics_data_by_metrics(
     """
     Args:
         brand_id: Brand id of the Metricool account.
-        from_date: Init date. Format: ISO 8601 (YYYY-MM-DDTHH:MM:SS±HH:MM).
-        to_date: End date. Format: ISO 8601 (YYYY-MM-DDTHH:MM:SS±HH:MM).
-        metrics: List of Data Studio field IDs (format: network+connector+index, e.g. IGPO01).
+        from_date: Start date. Use format YYYY-MM-DD (example: 2025-03-01). Only the date is needed, time is ignored.
+        to_date: End date. Use format YYYY-MM-DD (example: 2025-03-31). Only the date is needed, time is ignored.
+        metrics: List of Data Studio field IDs (format: 2-char network + 2-char connector + 2-digit index, e.g. IGPO01). Use get_analytics_available_metrics first to discover valid IDs.
     """
     logger.info(
         "get_analytics_data_by_metrics called: brand_id=%s metrics=%s", brand_id, metrics
