@@ -24,6 +24,25 @@ def load_fields() -> list[dict]:
         return yaml.safe_load(f) or []
 
 
+@lru_cache(maxsize=1)
+def field_labels() -> dict[str, str]:
+    """Return a mapping of fieldId → short human-readable label.
+
+    Examples: "IGEV01" → "Followers", "evdate" → "date".
+    The label is derived from metricLabel by stripping the "Network Connector > " prefix.
+    """
+    labels: dict[str, str] = {}
+    for f in load_fields():
+        fid = f.get("fieldId", "")
+        raw = f.get("metricLabel", fid)
+        # "Instagram Evolution > Followers" → "Followers"
+        label = raw.split(">", 1)[-1].strip() if ">" in raw else raw
+        labels[fid] = label
+    # Special case: evdate is the date dimension for evolution data
+    labels["evdate"] = "date"
+    return labels
+
+
 def _compatibility_group(field: dict) -> str:
     """Derive the compatibility group for a field.
 

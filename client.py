@@ -19,6 +19,7 @@ from collections import defaultdict
 from datetime import datetime
 
 import requests
+from fields_loader import field_labels
 from oauth import is_jwt
 
 logger = logging.getLogger(__name__)
@@ -219,10 +220,12 @@ class MetricoolClient:
             "blogId": brand_id,
             "userToken": self._token,
         }
+        labels = field_labels()
 
         # EV fields: single call, add evdate dimension
         if ev_fields:
-            fields_str = ",".join(ev_fields) + ",evdate"
+            ordered = ev_fields + ["evdate"]
+            fields_str = ",".join(ordered)
             rows = self._get(
                 "/api/datastudio/datasets",
                 params={**api_params_base, "fields": fields_str},
@@ -230,8 +233,7 @@ class MetricoolClient:
             if rows:
                 all_results.append({
                     "group": "evolution",
-                    "fields": ev_fields + ["evdate"],
-                    "data": rows,
+                    "data": _rows_to_objects(rows, ordered, labels),
                 })
 
         # Non-EV fields: one call per 4-char group
@@ -244,11 +246,38 @@ class MetricoolClient:
             if rows:
                 all_results.append({
                     "group": group_key,
-                    "fields": ids,
-                    "data": rows,
+                    "data": _rows_to_objects(rows, ids, labels),
                 })
 
         return all_results
+
+
+def _rows_to_objects(
+    rows: list,
+    field_ids: list[str],
+    labels: dict[str, str],
+) -> list[dict]:
+    """Convert positional arrays from the API into named objects.
+
+    Input:  [[24562, 27, 1, "20260409"], ...]
+    Output: [{"Followers": 24562, "Follows": 27, "Posts": 1, "date": "2026-04-09"}, ...]
+    """
+    keys = [labels.get(fid, fid) for fid in field_ids]
+    result = []
+    for row in rows:
+        if not isinstance(row, list):
+            continue
+        obj = {}
+        for i, key in enumerate(keys):
+            val = row[i] if i < len(row) else None
+            if val is None:
+                continue  # skip nulls to keep response lean
+            # Format YYYYMMDD dates as YYYY-MM-DD for readability
+            if key == "date" and isinstance(val, str) and len(val) == 8:
+                val = f"{val[:4]}-{val[4:6]}-{val[6:]}"
+            obj[key] = val
+        result.append(obj)
+    return result
 
 
 # ---------------------------------------------------------------------------
