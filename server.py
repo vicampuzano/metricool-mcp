@@ -153,9 +153,12 @@ def _clean_network_names(networks_data: dict) -> list[str]:
 
 @mcp.tool(
     description=(
-        "Get the list of scheduled posts for a specific Metricool brand (blog_id). "
-        "Only retrieves posts that are scheduled (not yet published). "
-        "If the user doesn't provide a blog_id, ask for it."
+        "Get posts from the Metricool planner for a specific brand. "
+        "Returns all posts in the date range: already published, pending, and drafts. "
+        "Use this to check what is scheduled for a given week, review upcoming content, "
+        "or see what was published from Metricool in a past period. "
+        "Keep date ranges short (max 1 month). For content performance analytics use "
+        "get_analytics_data_by_metrics instead."
     ),
     annotations=ToolAnnotations(
         title="Get Scheduled Posts",
@@ -187,8 +190,34 @@ def get_scheduled_posts(
     result = MetricoolClient(get_api_key()).get_scheduled_posts(
         brand_id, from_date, to_date, timezone, extended_range
     )
-    logger.info("get_scheduled_posts result: %s", result)
+    posts = result.get("data", result) if isinstance(result, dict) else result
+    if isinstance(posts, list):
+        trimmed = [_trim_post(p) for p in posts]
+        logger.info("get_scheduled_posts returning %d posts", len(trimmed))
+        return trimmed
     return result
+
+
+def _trim_post(p: dict) -> dict:
+    """Keep only the fields the LLM needs from a planner post."""
+    pub = p.get("publicationDate", {})
+    providers = p.get("providers", [])
+    trimmed = {
+        "id": p.get("id"),
+        "uuid": p.get("uuid"),
+        "date": pub.get("dateTime"),
+        "timezone": pub.get("timezone"),
+        "text": p.get("text", ""),
+        "networks": [
+            {"network": pr.get("network"), "status": pr.get("detailedStatus", pr.get("status"))}
+            for pr in providers if pr
+        ],
+        "draft": p.get("draft", False),
+    }
+    media = p.get("media")
+    if media:
+        trimmed["mediaCount"] = len(media)
+    return trimmed
 
 
 @mcp.tool(
