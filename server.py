@@ -10,6 +10,7 @@ Auth      : Authorization: Bearer <metricool-api-key>
 import json
 import logging
 import os
+import re
 from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
@@ -161,6 +162,18 @@ def _parse_info(info: str | dict) -> dict:
         raise ValueError(f"Invalid JSON in 'info': {exc}") from exc
 
 
+_DT_RE = re.compile(r"(\d{4}-\d{2}-\d{2})(?:T(\d{2}:\d{2})(?::(\d{2}))?)?")
+
+
+def _normalise_datetime(value: str) -> str:
+    """Return YYYY-MM-DDTHH:mm:ss, stripping any tz offset or fractional seconds."""
+    m = _DT_RE.match(value.strip())
+    if not m:
+        return value
+    date, hhmm, ss = m.group(1), m.group(2) or "00:00", m.group(3) or "00"
+    return f"{date}T{hhmm}:{ss}"
+
+
 def _ensure_publication_date(post_info: dict, date: str, timezone: str) -> None:
     """Normalise publicationDate to {dateTime, timezone}, filling gaps from params.
 
@@ -179,6 +192,8 @@ def _ensure_publication_date(post_info: dict, date: str, timezone: str) -> None:
         pub["dateTime"] = date
     if not pub.get("timezone"):
         pub["timezone"] = timezone
+    # API expects YYYY-MM-DDTHH:mm:ss — strip offset / fractional seconds
+    pub["dateTime"] = _normalise_datetime(pub["dateTime"])
     post_info["publicationDate"] = pub
 
 

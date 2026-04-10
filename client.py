@@ -344,4 +344,23 @@ def _build_post_request(
             ]
         body["instagramData"] = ig
 
+    # Ensure minimal network-specific data for each provider when the LLM
+    # omits it.  Only networks whose defaults are safe (no required user input).
+    _safe_defaults = {
+        "twitter": ("twitterData", {"tags": []}),
+        "facebook": ("facebookData", {"type": "POST"}),
+        "instagram": ("instagramData", {"type": "POST", "showReelOnFeed": True}),
+        "linkedin": ("linkedinData", {"type": "post", "previewIncluded": True}),
+        "bluesky": ("blueskyData", {"postLanguages": []}),
+        "threads": ("threadsData", {"allowedCountryCodes": []}),
+        "twitch": ("twitchData", {"autoPublish": True, "tags": []}),
+    }
+    for provider in body.get("providers", []):
+        network = (provider.get("network") or "").lower()
+        if network in _safe_defaults:
+            key, default = _safe_defaults[network]
+            if key not in body:
+                body[key] = dict(default)
+
+    logger.debug("_build_post_request body: %s", body)
     return body
