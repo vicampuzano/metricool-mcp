@@ -43,6 +43,7 @@ class BearerAuthMiddleware:
             headers = dict(scope.get("headers", []))
             auth_bytes = headers.get(b"authorization", b"")
             auth = auth_bytes.decode("utf-8", errors="ignore")
+            method = scope.get("method", "?")
 
             if auth.lower().startswith("bearer "):
                 raw_token = auth[7:].strip()
@@ -61,6 +62,7 @@ class BearerAuthMiddleware:
                 return
 
             # No Bearer token — return 401 so clients discover the OAuth flow
+            logger.warning("401 no-token: %s %s", method, path)
             await _send_401(send, "Bearer token required")
             return
 
