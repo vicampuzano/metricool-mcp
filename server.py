@@ -162,8 +162,19 @@ def _parse_info(info: str | dict) -> dict:
 
 
 def _ensure_publication_date(post_info: dict, date: str, timezone: str) -> None:
-    """Fill publicationDate in post_info from the top-level date/timezone params when missing."""
-    pub = post_info.get("publicationDate") or {}
+    """Normalise publicationDate to {dateTime, timezone}, filling gaps from params.
+
+    Handles every format LLMs have been observed to send:
+      - missing / None / {}       → built entirely from date + timezone params
+      - plain string              → treated as dateTime, timezone from param
+      - dict with partial fields  → gaps filled from params
+      - any other type            → replaced with params
+    """
+    pub = post_info.get("publicationDate")
+    if isinstance(pub, str):
+        pub = {"dateTime": pub.strip()} if pub.strip() else {}
+    elif not isinstance(pub, dict):
+        pub = {}
     if not pub.get("dateTime"):
         pub["dateTime"] = date
     if not pub.get("timezone"):
