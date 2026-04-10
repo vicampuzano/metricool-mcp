@@ -161,6 +161,16 @@ def _parse_info(info: str | dict) -> dict:
         raise ValueError(f"Invalid JSON in 'info': {exc}") from exc
 
 
+def _ensure_publication_date(post_info: dict, date: str, timezone: str) -> None:
+    """Fill publicationDate in post_info from the top-level date/timezone params when missing."""
+    pub = post_info.get("publicationDate") or {}
+    if not pub.get("dateTime"):
+        pub["dateTime"] = date
+    if not pub.get("timezone"):
+        pub["timezone"] = timezone
+    post_info["publicationDate"] = pub
+
+
 @mcp.tool(
     description=(
         "Get posts from the Metricool planner for a specific brand. "
@@ -293,15 +303,18 @@ def create_scheduled_post(
     date: str,
     blog_id: str,
     info: str | dict,
+    timezone: str = "UTC",
 ) -> dict:
     """
     Args:
-        date: Publication date/time. Use format YYYY-MM-DDTHH:mm:ss (example: 2025-03-15T14:30:00). Do NOT include timezone offset — timezone is set inside publicationDate in the info JSON.
+        date: Publication date/time. Use format YYYY-MM-DDTHH:mm:ss (example: 2025-03-15T14:30:00). Do NOT include timezone offset.
         blog_id: Blog id of the Metricool brand account.
+        timezone: IANA timezone for the publication date (e.g. "Europe/Madrid"). Use the timezone returned by get_brand_settings. Defaults to UTC.
         info: Post data as a JSON object. Required fields:
             providers (list, e.g. [{"network":"twitter"}]),
-            publicationDate ({dateTime:"YYYY-MM-DDTHH:mm:ss", timezone:"IANA"}),
             text (str, required unless Instagram Story).
+          Auto-filled from parameters (do NOT include unless you need to override):
+            publicationDate — built automatically from date and timezone params.
           Optional fields (defaults in parentheses):
             autoPublish (true), descendants ([]), draft (false),
             firstCommentText (""), hasNotReadNotes (false),
@@ -319,8 +332,9 @@ def create_scheduled_post(
             blueskyData: {"postLanguages":[]},
             threadsData: {"allowedCountryCodes":[]}.
     """
-    logger.info("create_scheduled_post called: date=%s blog_id=%s", date, blog_id)
+    logger.info("create_scheduled_post called: date=%s blog_id=%s tz=%s", date, blog_id, timezone)
     post_info = _parse_info(info)
+    _ensure_publication_date(post_info, date, timezone)
     validate_post_info(post_info)
     result = MetricoolClient(get_api_key()).create_scheduled_post(blog_id, date, post_info)
     logger.info("create_scheduled_post result: %s", result)
