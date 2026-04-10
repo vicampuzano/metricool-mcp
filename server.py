@@ -93,20 +93,32 @@ mcp = FastMCP(
 def get_brand_settings() -> dict:
     logger.info("get_brand_settings called")
     result = MetricoolClient(get_api_key()).get_brands()
-    logger.info("get_brand_settings result: %s", result)
     # Trim response to only what the LLM needs — saves ~60% tokens
     brands = result.get("data", result) if isinstance(result, dict) else result
     if isinstance(brands, list):
-        return [
-            {
-                "id": b.get("id"),
-                "label": b.get("label"),
-                "timezone": b.get("timezone"),
-                "connectedNetworks": _clean_network_names(b.get("networksData") or {}),
-            }
-            for b in brands
-        ]
+        trimmed = [_trim_brand(b) for b in brands]
+        logger.info("get_brand_settings returning %d brands", len(trimmed))
+        return trimmed
     return result
+
+
+def _trim_brand(b: dict) -> dict:
+    """Keep only the fields the LLM needs from a brand object."""
+    trimmed = {
+        "id": b.get("id"),
+        "label": b.get("label"),
+        "timezone": b.get("timezone"),
+        "connectedNetworks": _clean_network_names(b.get("networksData") or {}),
+    }
+    # Include role and permissions for shared brands so the LLM knows
+    # what actions are allowed (e.g. can it schedule posts or only view analytics)
+    role = b.get("brandRole")
+    if role:
+        actions = role.get("actions", {})
+        trimmed["role"] = role.get("name")
+        trimmed["canSchedule"] = actions.get("schedulePosts", False)
+        trimmed["canViewAnalytics"] = actions.get("viewAnalytics", False)
+    return trimmed
 
 
 # Map raw API keys from networksData to the network names used in analytics tools
