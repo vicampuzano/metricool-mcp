@@ -305,18 +305,85 @@ def get_best_time_to_post_by_network(
     )
 
 
+_NETWORK_ALIASES = {"x": "twitter", "ig": "instagram", "fb": "facebook",
+                     "yt": "youtube", "tt": "tiktok", "li": "linkedin", "pin": "pinterest"}
+
+
+def _resolve_networks(networks: list[str]) -> list[str]:
+    """Lower-case and resolve aliases like 'x' → 'twitter'."""
+    return [_NETWORK_ALIASES.get(n.lower(), n.lower()) for n in networks]
+
+
+def _build_post_info(
+    networks: list[str], text: str, date: str, timezone: str,
+    media: list | None, draft: bool, content_type: str, first_comment: str,
+    pinterest_board_id: str, pinterest_pin_title: str, pinterest_pin_link: str,
+    youtube_title: str, youtube_made_for_kids: bool, tiktok_title: str,
+) -> dict:
+    """Assemble the full post_info dict from flat tool parameters."""
+    info: dict = {
+        "providers": [{"network": n} for n in networks],
+        "publicationDate": {"dateTime": _normalise_datetime(date), "timezone": timezone},
+        "text": text,
+        "media": media or [],
+        "mediaAltText": [],
+        "autoPublish": True,
+        "descendants": [],
+        "draft": draft,
+        "firstCommentText": first_comment,
+        "hasNotReadNotes": False,
+        "shortener": False,
+        "smartLinkData": {"ids": []},
+    }
+    ct = (content_type or "POST").upper()
+    if "twitter" in networks:
+        info["twitterData"] = {"tags": []}
+    if "instagram" in networks:
+        info["instagramData"] = {"type": ct, "showReelOnFeed": True}
+    if "facebook" in networks:
+        info["facebookData"] = {"type": ct}
+    if "linkedin" in networks:
+        info["linkedinData"] = {"type": "post", "previewIncluded": True}
+    if "pinterest" in networks:
+        info["pinterestData"] = {"boardId": pinterest_board_id, "pinTitle": pinterest_pin_title,
+                                 "pinLink": pinterest_pin_link, "pinNewFormat": False}
+    if "youtube" in networks:
+        info["youtubeData"] = {"title": youtube_title, "type": "video", "privacy": "public",
+                               "tags": [], "madeForKids": youtube_made_for_kids}
+    if "tiktok" in networks:
+        info["tiktokData"] = {"title": tiktok_title, "privacyOption": "PUBLIC_TO_EVERYONE",
+                              "disableComment": False, "disableDuet": False, "disableStitch": False,
+                              "autoAddMusic": False, "photoCoverIndex": 0}
+    if "bluesky" in networks:
+        info["blueskyData"] = {"postLanguages": []}
+    if "threads" in networks:
+        info["threadsData"] = {"allowedCountryCodes": []}
+    if "twitch" in networks:
+        info["twitchData"] = {"autoPublish": True, "tags": []}
+    return info
+
+
 @mcp.tool(
-    description="""Schedule a post to Metricool at a specific date and time.
-You can use get_best_time_to_post_by_network to determine the best time if the user doesn't specify one.
-Requirements by network:
-- Instagram: at least one image or video. Posts/carousels need an image, Reels need a video, Stories need image or video.
-- Pinterest: image required + boardId in pinterestData.
-- YouTube: video required + title + madeForKids in youtubeData.
-- TikTok: at least one image or video + title in tiktokData.
-- Facebook Reel: video required. Facebook Story: image or video required.
-- Bluesky: text must not exceed 300 characters. If exceeded respond: "Error: The text exceeds the 300-character limit allowed on Bluesky. Please edit it."
-- X (Twitter): text must not exceed 280 characters. Do NOT split into threads. If exceeded respond: "Error: The text exceeds the 280-character limit allowed on X. Please edit it."
-The date cannot be in the past. DO NOT modify the text on error — just notify the user.""",
+    description="""Schedule a post to one or more social networks via Metricool.
+Call get_brand_settings first to obtain blog_id and timezone.
+Use get_best_time_to_post_by_network if the user doesn't specify a time.
+
+Simple example — Twitter/X text post:
+  blog_id="31927", networks=["twitter"], text="Hello world!", date="2026-04-13T17:00:00", timezone="Europe/Madrid"
+
+Character limits (do NOT split into threads or truncate — report the error):
+- X/Twitter: 280 chars max.
+- Bluesky: 300 chars max.
+
+Media requirements:
+- Instagram POST/REEL/STORY: requires media. REEL needs video. STORY has no text.
+- Pinterest: requires media + pinterest_board_id, pinterest_pin_title, pinterest_pin_link.
+- YouTube: requires media (video) + youtube_title.
+- TikTok: requires media + tiktok_title.
+- Facebook REEL: requires video. Facebook STORY: requires media.
+
+content_type applies to Instagram and Facebook only: POST (default), REEL, or STORY.
+The date must be in the future. DO NOT modify the user's text — just report any error.""",
     annotations=ToolAnnotations(
         title="Create Scheduled Post",
         readOnlyHint=False,
@@ -326,43 +393,49 @@ The date cannot be in the past. DO NOT modify the text on error — just notify 
     ),
 )
 def create_scheduled_post(
-    date: str,
     blog_id: str,
-    info: str | dict,
-    timezone: str = "UTC",
+    date: str,
+    timezone: str,
+    networks: list[str],
+    text: str = "",
+    media: list[str] | None = None,
+    draft: bool = False,
+    content_type: str = "POST",
+    first_comment: str = "",
+    pinterest_board_id: str = "",
+    pinterest_pin_title: str = "",
+    pinterest_pin_link: str = "",
+    youtube_title: str = "",
+    youtube_made_for_kids: bool = False,
+    tiktok_title: str = "",
 ) -> dict:
     """
     Args:
-        date: Publication date/time. Use format YYYY-MM-DDTHH:mm:ss (example: 2025-03-15T14:30:00). Do NOT include timezone offset.
-        blog_id: Blog id of the Metricool brand account.
-        timezone: IANA timezone for the publication date (e.g. "Europe/Madrid"). Use the timezone returned by get_brand_settings. Defaults to UTC.
-        info: Post data as a JSON object. Required fields:
-            providers (list, e.g. [{"network":"twitter"}]),
-            text (str, required unless Instagram Story).
-          Auto-filled from parameters (do NOT include unless you need to override):
-            publicationDate — built automatically from date and timezone params.
-          Optional fields (defaults in parentheses):
-            autoPublish (true), descendants ([]), draft (false),
-            firstCommentText (""), hasNotReadNotes (false),
-            media ([]), mediaAltText ([]), shortener (false),
-            smartLinkData ({ids:[]}).
-          Network data (include only for networks in providers):
-            twitterData: {"tags":[]},
-            facebookData: {"type":"POST|REEL|STORY","title":"<str>","boost":<float>,"boostPayer":"<str>","boostBeneficiary":"<str>"},
-            instagramData: {"type":"POST|REEL|STORY","collaborators":[{"username":"<str>","deleted":false}],"showReelOnFeed":true,"boost":<float>,"boostPayer":"<str>","boostBeneficiary":"<str>"},
-            linkedinData: {"documentTitle":"<str>","publishImagesAsPDF":false,"previewIncluded":true,"type":"post|poll","poll":{"question":"<str>","options":[{"text":"<str>"}],"settings":{"duration":"ONE_DAY|THREE_DAYS|SEVEN_DAYS|FOURTEEN_DAYS"}}},
-            pinterestData: {"boardId":"<str>","pinTitle":"<str>","pinLink":"<str>","pinNewFormat":false},
-            youtubeData: {"title":"<str>","type":"video|short","privacy":"public|unlisted|private","tags":[],"category":"<str>","madeForKids":false},
-            twitchData: {"autoPublish":true,"tags":[]},
-            tiktokData: {"disableComment":false,"disableDuet":false,"disableStitch":false,"privacyOption":"PUBLIC_TO_EVERYONE|MUTUAL_FOLLOW_FRIENDS|FOLLOWER_OF_CREATOR|SELF_ONLY","commercialContentThirdParty":false,"commercialContentOwnBrand":false,"title":"<str>","autoAddMusic":false,"photoCoverIndex":0},
-            blueskyData: {"postLanguages":[]},
-            threadsData: {"allowedCountryCodes":[]}.
+        blog_id: Blog id of the Metricool brand account (from get_brand_settings).
+        date: Publication date/time, format YYYY-MM-DDTHH:mm:ss (e.g. 2025-03-15T14:30:00).
+        timezone: IANA timezone (e.g. "Europe/Madrid"). Use the value from get_brand_settings.
+        networks: Social networks to publish to (e.g. ["twitter"] or ["twitter","instagram"]). Accepted: twitter, instagram, facebook, linkedin, bluesky, threads, pinterest, youtube, tiktok, twitch.
+        text: Post text content. Required for all networks except Instagram Story.
+        media: List of public media URLs (images/videos). Required for Instagram, Pinterest, YouTube, TikTok.
+        draft: Save as draft instead of scheduling (default false).
+        content_type: POST, REEL, or STORY — only used for Instagram and Facebook (default POST).
+        first_comment: Optional first comment to add after publishing.
+        pinterest_board_id: Pinterest board ID (required when pinterest in networks).
+        pinterest_pin_title: Pin title (required when pinterest in networks).
+        pinterest_pin_link: Destination URL for the pin (required when pinterest in networks).
+        youtube_title: Video title (required when youtube in networks).
+        youtube_made_for_kids: Whether the video is made for kids (required when youtube in networks).
+        tiktok_title: Video title (required when tiktok in networks).
     """
-    logger.info("create_scheduled_post called: date=%s blog_id=%s tz=%s", date, blog_id, timezone)
-    post_info = _parse_info(info)
-    _ensure_publication_date(post_info, date, timezone)
+    nets = _resolve_networks(networks)
+    logger.info("create_scheduled_post called: date=%s blog_id=%s tz=%s nets=%s", date, blog_id, timezone, nets)
+    post_info = _build_post_info(
+        nets, text, date, timezone, media, draft, content_type, first_comment,
+        pinterest_board_id, pinterest_pin_title, pinterest_pin_link,
+        youtube_title, youtube_made_for_kids, tiktok_title,
+    )
     validate_post_info(post_info)
-    result = MetricoolClient(get_api_key()).create_scheduled_post(blog_id, date, post_info)
+    result = MetricoolClient(get_api_key()).create_scheduled_post(blog_id, post_info)
     logger.info("create_scheduled_post result: %s", result)
     return result
 

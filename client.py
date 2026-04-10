@@ -159,7 +159,7 @@ class MetricoolClient:
             },
         )
 
-    def create_scheduled_post(self, blog_id: str, date: str, post_info: dict) -> object:
+    def create_scheduled_post(self, blog_id: str, post_info: dict) -> object:
         body = _build_post_request(post_info)
         return self._post(
             "/api/v2/scheduler/posts",
