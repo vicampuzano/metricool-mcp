@@ -151,6 +151,16 @@ def _clean_network_names(networks_data: dict) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
+def _parse_info(info: str | dict) -> dict:
+    """Accept post info as dict (natural for LLMs) or JSON string (legacy)."""
+    if isinstance(info, dict):
+        return info
+    try:
+        return json.loads(info)
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise ValueError(f"Invalid JSON in 'info': {exc}") from exc
+
+
 @mcp.tool(
     description=(
         "Get posts from the Metricool planner for a specific brand. "
@@ -282,13 +292,13 @@ The date cannot be in the past. DO NOT modify the text on error — just notify 
 def create_scheduled_post(
     date: str,
     blog_id: str,
-    info: str,
+    info: str | dict,
 ) -> dict:
     """
     Args:
         date: Publication date/time. Use format YYYY-MM-DDTHH:mm:ss (example: 2025-03-15T14:30:00). Do NOT include timezone offset — timezone is set inside publicationDate in the info JSON.
         blog_id: Blog id of the Metricool brand account.
-        info: JSON string with the post data. Required fields:
+        info: Post data as a JSON object. Required fields:
             providers (list, e.g. [{"network":"twitter"}]),
             publicationDate ({dateTime:"YYYY-MM-DDTHH:mm:ss", timezone:"IANA"}),
             text (str, required unless Instagram Story).
@@ -310,13 +320,8 @@ def create_scheduled_post(
             threadsData: {"allowedCountryCodes":[]}.
     """
     logger.info("create_scheduled_post called: date=%s blog_id=%s", date, blog_id)
-    try:
-        post_info = json.loads(info)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"Invalid JSON in 'info': {exc}") from exc
-
+    post_info = _parse_info(info)
     validate_post_info(post_info)
-
     result = MetricoolClient(get_api_key()).create_scheduled_post(blog_id, date, post_info)
     logger.info("create_scheduled_post result: %s", result)
     return result
@@ -341,21 +346,17 @@ def update_scheduled_post(
     id: str,
     uuid: str,
     blog_id: str,
-    info: str,
+    info: str | dict,
 ) -> dict:
     """
     Args:
         id: Post id from get_scheduled_posts.
         uuid: Post uuid from get_scheduled_posts.
         blog_id: Blog id of the Metricool brand account.
-        info: JSON string with the full post data (same format as create_scheduled_post).
+        info: Post data as a JSON object (same format as create_scheduled_post).
     """
     logger.info("update_scheduled_post called: id=%s uuid=%s blog_id=%s", id, uuid, blog_id)
-    try:
-        post_info = json.loads(info)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"Invalid JSON in 'info': {exc}") from exc
-
+    post_info = _parse_info(info)
     validate_post_info(post_info)
 
     result = MetricoolClient(get_api_key()).update_scheduled_post(id, uuid, blog_id, post_info)
