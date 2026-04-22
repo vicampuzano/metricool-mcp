@@ -105,7 +105,7 @@ This server uses **OAuth 2.0 with PKCE** (authorization code flow). No API keys 
 
 ## Tools
 
-### get_brand_settings
+### list_brands
 
 Retrieves the list of brands (accounts) connected to the user's Metricool account, including social network connections, timezones, and competitor settings.
 
@@ -162,7 +162,7 @@ Updates an existing scheduled post. Requires the full post content with the desi
 **Prompt:**
 > What social media accounts do I have connected in Metricool?
 
-**What happens:** Claude calls `get_brand_settings` and returns a summary of your brands, connected networks, and timezones.
+**What happens:** Claude calls `list_brands` and returns a summary of your brands, connected networks, and timezones.
 
 **Expected output:**
 > You have 1 brand connected — "My Company". It has the following social accounts linked:
@@ -180,7 +180,7 @@ Updates an existing scheduled post. Requires the full post content with the desi
 **Prompt:**
 > Schedule a post on Instagram and X for tomorrow saying "Excited to announce our new feature! Check it out at mycompany.com 🚀". Pick the best time.
 
-**What happens:** Claude calls `get_brand_settings` to get your brand ID and timezone, then `get_best_time_to_post_by_network` for both Instagram and X to determine the optimal posting time, and finally `create_scheduled_post` with the text and selected networks.
+**What happens:** Claude calls `list_brands` to get your brand ID and timezone, then `get_best_time_to_post_by_network` for both Instagram and X to determine the optimal posting time, and finally `create_scheduled_post` with the text and selected networks.
 
 **Expected output:**
 > I've scheduled your post for tomorrow at 10:30 AM (Europe/Madrid), which is the highest-scoring time slot for both Instagram and X this week.

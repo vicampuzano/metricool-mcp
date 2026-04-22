@@ -38,7 +38,7 @@ mcp = FastMCP(
         "You are a Metricool AI assistant that helps users manage social media "
         "scheduling, analytics, and account settings.\n\n"
         "WORKFLOW — follow this order:\n"
-        "1. Always call get_brand_settings first to obtain the brand_id and timezone. "
+        "1. Always call list_brands first to obtain the brand_id and timezone. "
         "Do NOT guess or ask the user for brand_id — get it from this call.\n"
         "2. For analytics:\n"
         "   a. Call get_analytics_available_metrics with the right network and connector "
@@ -84,21 +84,21 @@ mcp = FastMCP(
         "Only Instagram, Facebook, Twitch, YouTube, Twitter, and Bluesky support competitors."
     ),
     annotations=ToolAnnotations(
-        title="Get Brand Settings",
+        title="List Brands",
         readOnlyHint=True,
         destructiveHint=False,
         idempotentHint=True,
         openWorldHint=True,
     ),
 )
-def get_brand_settings() -> dict:
-    logger.info("get_brand_settings called")
+def list_brands() -> dict:
+    logger.info("list_brands called")
     result = MetricoolClient(get_api_key()).get_brands()
     # Trim response to only what the LLM needs — saves ~60% tokens
     brands = result.get("data", result) if isinstance(result, dict) else result
     if isinstance(brands, list):
         trimmed = [_trim_brand(b) for b in brands]
-        logger.info("get_brand_settings returning %d brands", len(trimmed))
+        logger.info("list_brands returning %d brands", len(trimmed))
         return trimmed
     return result
 
@@ -226,7 +226,7 @@ def get_scheduled_posts(
         brand_id: Blog id of the Metricool brand account.
         from_date: Start date and time. Use format YYYY-MM-DDTHH:mm:ss (example: 2025-03-15T00:00:00). Do NOT include timezone offset in the value.
         to_date: End date and time. Use format YYYY-MM-DDTHH:mm:ss (example: 2025-03-15T23:59:59). Do NOT include timezone offset in the value.
-        timezone: IANA timezone identifier (example: Europe/Madrid). Use the value from get_brand_settings.
+        timezone: IANA timezone identifier (example: Europe/Madrid). Use the value from list_brands.
         extended_range: When true, search range is expanded one day in each direction. Default false.
     """
     logger.info(
@@ -293,7 +293,7 @@ def get_best_time_to_post_by_network(
         brand_id: Blog id of the Metricool brand account.
         from_date: Start date and time. Use format YYYY-MM-DDTHH:mm:ss (example: 2025-03-15T00:00:00). Do NOT include timezone offset in the value.
         to_date: End date and time. Use format YYYY-MM-DDTHH:mm:ss (example: 2025-03-15T23:59:59). Do NOT include timezone offset in the value.
-        timezone: IANA timezone identifier (example: Europe/Madrid). Use the value from get_brand_settings.
+        timezone: IANA timezone identifier (example: Europe/Madrid). Use the value from list_brands.
         social_network: Accepted values: "twitter", "facebook", "instagram", "linkedin", "youtube", "tiktok".
     """
     logger.info(
@@ -365,7 +365,7 @@ def _build_post_info(
 
 @mcp.tool(
     description="""Schedule a post to one or more social networks via Metricool.
-Call get_brand_settings first to obtain blog_id and timezone.
+Call list_brands first to obtain blog_id and timezone.
 Use get_best_time_to_post_by_network if the user doesn't specify a time.
 
 Simple example — Twitter/X text post:
@@ -411,9 +411,9 @@ def create_scheduled_post(
 ) -> dict:
     """
     Args:
-        blog_id: Blog id of the Metricool brand account (from get_brand_settings).
+        blog_id: Blog id of the Metricool brand account (from list_brands).
         date: Publication date/time, format YYYY-MM-DDTHH:mm:ss (e.g. 2025-03-15T14:30:00).
-        timezone: IANA timezone (e.g. "Europe/Madrid"). Use the value from get_brand_settings.
+        timezone: IANA timezone (e.g. "Europe/Madrid"). Use the value from list_brands.
         networks: Social networks to publish to (e.g. ["twitter"] or ["twitter","instagram"]). Accepted: twitter, instagram, facebook, linkedin, bluesky, threads, pinterest, youtube, tiktok, twitch.
         text: Post text content. Required for all networks except Instagram Story.
         media: List of public media URLs (images/videos). Required for Instagram, Pinterest, YouTube, TikTok.
