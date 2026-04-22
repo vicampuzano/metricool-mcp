@@ -45,6 +45,21 @@ def field_labels() -> dict[str, str]:
     return labels
 
 
+@lru_cache(maxsize=1)
+def field_raw_labels() -> dict[str, str]:
+    """Return fieldId → raw metricLabel (with "Network Connector > " prefix).
+
+    Used to disambiguate collisions when multiple networks are combined in a
+    single analytics call (e.g. IG, TH and TT evolution all yield "Followers").
+    """
+    labels: dict[str, str] = {
+        f.get("fieldId", ""): f.get("metricLabel", f.get("fieldId", ""))
+        for f in load_fields()
+    }
+    labels["evdate"] = "date"
+    return labels
+
+
 def available_connectors_for_network(network: str) -> list[str]:
     """Return the connectors that have active (non-deprecated) fields for a network.
 

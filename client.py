@@ -19,7 +19,7 @@ from collections import defaultdict
 from datetime import datetime
 
 import requests
-from fields_loader import field_labels
+from fields_loader import field_labels, field_raw_labels
 from oauth import is_jwt
 
 logger = logging.getLogger(__name__)
@@ -220,7 +220,6 @@ class MetricoolClient:
             "blogId": brand_id,
             "userToken": self._token,
         }
-        labels = field_labels()
 
         # EV fields: single call, add evdate dimension
         if ev_fields:
@@ -233,7 +232,7 @@ class MetricoolClient:
             if rows:
                 all_results.append({
                     "group": "evolution",
-                    "data": _rows_to_objects(rows, ordered, labels),
+                    "data": _rows_to_objects(rows, ordered),
                 })
 
         # Non-EV fields: one call per 4-char group
@@ -246,23 +245,43 @@ class MetricoolClient:
             if rows:
                 all_results.append({
                     "group": group_key,
-                    "data": _rows_to_objects(rows, ids, labels),
+                    "data": _rows_to_objects(rows, ids),
                 })
 
         return all_results
 
 
-def _rows_to_objects(
-    rows: list,
-    field_ids: list[str],
-    labels: dict[str, str],
-) -> list[dict]:
+def _resolve_output_keys(field_ids: list[str]) -> list[str]:
+    """Pick display keys for a row, disambiguating label collisions.
+
+    Stripped labels are compact ("Followers") but collide when combining metrics
+    from different networks (IG + TH + TT all yield "Followers"). When a
+    collision is detected, every field sharing that label falls back to its
+    raw prefixed label ("Instagram Evolution > Followers"). Non-colliding
+    fields keep their short label.
+    """
+    short = field_labels()
+    keys = [short.get(fid, fid) for fid in field_ids]
+    counts: dict[str, int] = {}
+    for k in keys:
+        counts[k] = counts.get(k, 0) + 1
+    collisions = {k for k, c in counts.items() if c > 1}
+    if not collisions:
+        return keys
+    raw = field_raw_labels()
+    return [
+        raw.get(fid, keys[i]) if keys[i] in collisions else keys[i]
+        for i, fid in enumerate(field_ids)
+    ]
+
+
+def _rows_to_objects(rows: list, field_ids: list[str]) -> list[dict]:
     """Convert positional arrays from the API into named objects.
 
     Input:  [[24562, 27, 1, "20260409"], ...]
     Output: [{"Followers": 24562, "Follows": 27, "Posts": 1, "date": "2026-04-09"}, ...]
     """
-    keys = [labels.get(fid, fid) for fid in field_ids]
+    keys = _resolve_output_keys(field_ids)
     result = []
     for row in rows:
         if not isinstance(row, list):
