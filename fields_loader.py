@@ -24,23 +24,45 @@ def load_fields() -> list[dict]:
         return yaml.safe_load(f) or []
 
 
+def _strip_network_connector_prefix(label: str) -> str:
+    """Drop the "Network Connector > " prefix from a metric label."""
+    return label.split(">", 1)[-1].strip() if ">" in label else label
+
+
 @lru_cache(maxsize=1)
 def field_labels() -> dict[str, str]:
     """Return a mapping of fieldId → short human-readable label.
 
     Examples: "IGEV01" → "Followers", "evdate" → "date".
-    The label is derived from metricLabel by stripping the "Network Connector > " prefix.
     """
     labels: dict[str, str] = {}
     for f in load_fields():
         fid = f.get("fieldId", "")
         raw = f.get("metricLabel", fid)
-        # "Instagram Evolution > Followers" → "Followers"
-        label = raw.split(">", 1)[-1].strip() if ">" in raw else raw
-        labels[fid] = label
+        labels[fid] = _strip_network_connector_prefix(raw)
     # Special case: evdate is the date dimension for evolution data
     labels["evdate"] = "date"
     return labels
+
+
+def available_connectors_for_network(network: str) -> list[str]:
+    """Return the connectors that have active (non-deprecated) fields for a network.
+
+    Used to hint alternatives when a discovery call returns 0 results.
+    """
+    if not network:
+        return []
+    net_lower = network.lower()
+    seen: set[str] = set()
+    for f in load_fields():
+        if f.get("network", "").lower() != net_lower:
+            continue
+        if f.get("metricLabel", "").lower().startswith("deprecated"):
+            continue
+        conn = f.get("connector", "")
+        if conn:
+            seen.add(conn)
+    return sorted(seen)
 
 
 def _compatibility_group(field: dict) -> str:
@@ -77,14 +99,21 @@ def filter_fields(
         f for f in result
         if not f.get("metricLabel", "").lower().startswith("deprecated")
     ]
-    # Return only fields the LLM needs — keep the response lean to save tokens
-    return [
-        {
+    # When filtering by both network AND connector the "Network Connector > "
+    # prefix in labels is redundant, so strip it to save tokens.
+    strip = bool(network and connector)
+    output: list[dict] = []
+    for f in result:
+        raw_label = f.get("metricLabel", "")
+        agg = f.get("dataAggregation", "")
+        entry = {
             "fieldId": f.get("fieldId", ""),
-            "label": f.get("metricLabel", ""),
+            "label": _strip_network_connector_prefix(raw_label) if strip else raw_label,
             "description": f.get("description", ""),
-            "fieldType": "dimension" if not f.get("dataAggregation") else "metric",
+            "fieldType": "dimension" if not agg else "metric",
             "compatibilityGroup": _compatibility_group(f),
         }
-        for f in result
-    ]
+        if agg:
+            entry["aggregation"] = agg
+        output.append(entry)
+    return output

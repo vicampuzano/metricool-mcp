@@ -19,7 +19,7 @@ from mcp.types import ToolAnnotations
 
 from auth import get_api_key
 from client import MetricoolClient
-from fields_loader import filter_fields, load_fields
+from fields_loader import available_connectors_for_network, filter_fields, load_fields
 from validators import validate_post_info
 
 logging.basicConfig(
@@ -512,11 +512,27 @@ def update_scheduled_post(
         "Each returned field has a fieldType ('dimension' or 'metric'):\n"
         "- Dimensions: descriptive attributes (date, post text, image URL, post URL, type). "
         "Include only the dimensions the user actually needs.\n"
-        "- Metrics: numeric values that can be aggregated (likes, reach, engagement, comments).\n"
+        "- Metrics: numeric values that can be aggregated (likes, reach, engagement, comments).\n\n"
+        "Each metric also carries an 'aggregation' hint telling you how to combine it over time:\n"
+        "- SUM: value is additive across days (e.g. Posts Published, Likes received). Safe to sum over a range.\n"
+        "- AVG: daily average already computed (e.g. Daily engagement timeline). Do NOT sum — average if aggregating further.\n"
+        "- LAST: point-in-time snapshot — use the last value in the range (e.g. Followers count). Summing is WRONG.\n"
+        "- SINGLE: pre-aggregated value for the whole period (e.g. Aggregated Engagement). Use as-is, one number per range.\n"
+        "- (absent): the field is a dimension, not a metric.\n"
+        "Pay attention to this when answering 'totals' — asking for total followers means taking LAST, not SUM.\n\n"
+        "Ambiguous connector codes to disambiguate (case-insensitive):\n"
+        "- linkedin: 'DF' = demographics by function, 'DI' = demographics by industry, 'DZ' = demographics by company size.\n"
+        "- twitter: 'TW' = posts (Twitter uses 'TW' instead of the usual 'posts').\n"
+        "- twitch: 'CL' = clips.\n"
+        "- network 'SL' (Smart Links): 'BT' = buttons, 'IM' = images, 'TL' = timeline table.\n"
+        "- network 'FG' (Facebook Groups): use 'evolution' or 'posts'.\n\n"
         "When the user asks for aggregated stats or rankings, request only the relevant metrics "
         "plus minimal dimensions (e.g. date). Do NOT request text content, images, or URLs "
         "unless the user wants to see individual post details.\n"
-        "If the user's request is ambiguous, confirm which metrics matter before fetching data."
+        "If the user's request is ambiguous, confirm which metrics matter before fetching data.\n\n"
+        "Response shape: normally a list of field objects. If the filter matches 0 active fields "
+        "(e.g. a deprecated connector), the response is an object with 'fields': [], a 'hint' "
+        "explaining the situation, and 'availableConnectors' listing valid connectors for the network."
     ),
     annotations=ToolAnnotations(
         title="Get Available Analytics Metrics",
@@ -529,7 +545,7 @@ def update_scheduled_post(
 def get_analytics_available_metrics(
     network: Optional[str] = None,
     connector: Optional[str] = None,
-) -> list:
+) -> list | dict:
     """
     Args:
         network: Network name. Values: bluesky, googleBusinessProfile, metaAds, threads,
@@ -548,6 +564,21 @@ def get_analytics_available_metrics(
     logger.info("get_analytics_available_metrics called: network=%s connector=%s", network, connector)
     fields = load_fields()
     result = filter_fields(fields, network, connector)
+    if not result and network:
+        suggestions = available_connectors_for_network(network)
+        logger.info(
+            "get_analytics_available_metrics returned 0 fields for network=%s connector=%s; suggesting %d connectors",
+            network, connector, len(suggestions),
+        )
+        return {
+            "fields": [],
+            "hint": (
+                f"No active fields for network={network}"
+                + (f", connector={connector}" if connector else "")
+                + ". Pick one of the connectors in 'availableConnectors' and call this tool again."
+            ),
+            "availableConnectors": suggestions,
+        }
     logger.info("get_analytics_available_metrics returned %d fields", len(result))
     return result
 
