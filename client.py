@@ -26,6 +26,26 @@ logger = logging.getLogger(__name__)
 
 _BASE_URL = os.environ.get("METRICOOL_BASE_URL", "https://app.metricool.com").rstrip("/")
 
+
+class TokenInvalidError(Exception):
+    """The Metricool API rejected the bearer token (401/403).
+
+    Raised when the token is revoked or otherwise invalid before its 'exp'
+    claim. Surfaced to the caller so the LLM/user gets an actionable message
+    instead of a generic HTTP error.
+    """
+
+    def __init__(self, status_code: int, detail: str = "") -> None:
+        self.status_code = status_code
+        message = (
+            "Metricool authentication is no longer valid "
+            "(API returned HTTP %d). Please reconnect the Metricool MCP."
+            % status_code
+        )
+        if detail:
+            message += f" Details: {detail}"
+        super().__init__(message)
+
 # Date format used by the scheduler API  (yyyy-MM-dd'T'HH:mm:ss)
 _SCHEDULER_DATE_FMT = "%Y-%m-%dT%H:%M:%S"
 # Date format used by the analytics API (yyyyMMdd)
@@ -80,32 +100,33 @@ class MetricoolClient:
         else:
             self._session.headers.update({"X-Mc-Auth": token})
 
-    def _get(self, path: str, params: dict | None = None) -> object:
+    def _request(
+        self,
+        method: str,
+        path: str,
+        params: dict | None = None,
+        body: dict | None = None,
+    ) -> object:
         params = params or {}
         params.setdefault("integrationSource", "MCP")
         url = f"{_BASE_URL}{path}"
-        logger.debug("GET %s params=%s", url, params)
-        resp = self._session.get(url, params=params, timeout=30)
+        logger.debug("%s %s params=%s", method, url, params)
+        resp = self._session.request(
+            method, url, params=params, json=body, timeout=30
+        )
+        if resp.status_code in (401, 403):
+            raise TokenInvalidError(resp.status_code, resp.text[:200])
         resp.raise_for_status()
         return resp.json()
+
+    def _get(self, path: str, params: dict | None = None) -> object:
+        return self._request("GET", path, params=params)
 
     def _post(self, path: str, params: dict | None = None, body: dict | None = None) -> object:
-        params = params or {}
-        params.setdefault("integrationSource", "MCP")
-        url = f"{_BASE_URL}{path}"
-        logger.debug("POST %s params=%s", url, params)
-        resp = self._session.post(url, params=params, json=body, timeout=30)
-        resp.raise_for_status()
-        return resp.json()
+        return self._request("POST", path, params=params, body=body)
 
     def _put(self, path: str, params: dict | None = None, body: dict | None = None) -> object:
-        params = params or {}
-        params.setdefault("integrationSource", "MCP")
-        url = f"{_BASE_URL}{path}"
-        logger.debug("PUT %s params=%s", url, params)
-        resp = self._session.put(url, params=params, json=body, timeout=30)
-        resp.raise_for_status()
-        return resp.json()
+        return self._request("PUT", path, params=params, body=body)
 
     # -------------------------------------------------------------------------
     # Settings

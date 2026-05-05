@@ -162,6 +162,19 @@ def validate_and_extract(token: str) -> str:
         except jwt.InvalidTokenError as exc:
             raise ValueError(f"Invalid token: {exc}")
     else:
-        # OAuth token (RS256, etc.) — pass through, the Metricool API validates it
+        # OAuth token (RS256, etc.) — the Metricool API validates the signature.
+        # We still check 'exp' locally (without verifying the signature) so an
+        # expired token returns 401+WWW-Authenticate before the request reaches
+        # the API, letting OAuth-aware clients refresh proactively instead of
+        # surfacing an opaque tool error.
+        try:
+            jwt.decode(
+                token,
+                options={"verify_signature": False, "verify_exp": True},
+            )
+        except jwt.ExpiredSignatureError:
+            raise ValueError("Token has expired.")
+        except jwt.InvalidTokenError as exc:
+            raise ValueError(f"Invalid token: {exc}")
         logger.debug("OAuth JWT (alg=%s) accepted, forwarding to API", alg)
         return token
