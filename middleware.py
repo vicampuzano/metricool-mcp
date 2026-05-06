@@ -3,6 +3,7 @@ import os
 
 from auth import reset_api_key, set_api_key
 from oauth import validate_and_extract
+from token_check import is_token_valid_remote
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,15 @@ class BearerAuthMiddleware:
                 except ValueError as exc:
                     logger.warning("Token validation failed: %s", exc)
                     await _send_401(send, str(exc))
+                    return
+
+                # Probe Metricool API so an expired/revoked token surfaces as
+                # 401+WWW-Authenticate at the HTTP layer (which lets OAuth
+                # clients refresh) instead of as an opaque tool error inside a
+                # 200 OK JSON-RPC response.
+                if not await is_token_valid_remote(validated_token):
+                    logger.warning("Token rejected by Metricool API: %s %s", method, path)
+                    await _send_401(send, "Token has expired or been revoked.")
                     return
 
                 token_ctx = set_api_key(validated_token)
