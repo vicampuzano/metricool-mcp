@@ -9,6 +9,3 @@ requests>=2.31.0
 
 # YAML parsing for data-studio-fields.yaml
 pyyaml>=6.0.1
-
-# JWT validation (mirrors Java MetricoolJwtDecoder — HMAC-SHA256)
-PyJWT>=2.8.0

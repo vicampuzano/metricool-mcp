@@ -1,17 +1,20 @@
 """
-Remote token validation against the Metricool API, with short-TTL caching.
+Remote token revocation check against the Metricool API.
 
-Why this exists: Metricool's access tokens carry a non-decodable (likely
-compressed) JWT payload, so the resource server cannot read the 'exp' claim
-locally to know when to return 401+WWW-Authenticate. Without that signal,
-OAuth-aware MCP clients (Claude.ai, mcp-remote) never trigger their
-refresh_token flow and the user must reconnect manually.
+Local expiry detection lives in oauth.validate_and_extract — that handles the
+common case (token reached its 'exp'). This module catches the rarer case of
+tokens that were revoked or invalidated server-side before their stated
+expiry, so the middleware can still return 401+WWW-Authenticate and let
+OAuth-aware clients refresh.
 
-Strategy: probe a cheap, authenticated endpoint (/api/v2/settings/brands)
-once per token every TTL seconds. The probe result is cached so normal
-request traffic only pays the network cost once a minute.
+Strategy: probe a cheap, authenticated endpoint (/api/v2/settings/brands).
+Only **negative** results are cached — and only briefly. We deliberately do
+NOT cache successful probes: with local 'exp' checking already in place the
+upstream cost is one probe per request, and a stale "valid" entry is exactly
+what previously let expired tokens reach the tool layer (returning a JSON-RPC
+isError response that clients like ChatGPT do not translate into a refresh).
 
-Network errors during the probe fail open (treat token as valid) so a flaky
+Network errors during the probe fail open (treat as valid) so a flaky
 upstream doesn't break legitimate traffic; the API will reject on the real
 call if the token is actually bad.
 """
@@ -31,11 +34,17 @@ logger = logging.getLogger(__name__)
 
 _BASE_URL = os.environ.get("METRICOOL_BASE_URL", "https://app.metricool.com").rstrip("/")
 _PROBE_PATH = "/api/v2/settings/brands"
-_TTL_SECONDS = 60.0
+# Short negative-cache TTL: just long enough to absorb a burst of tool calls
+# from the same expired/revoked token without hammering the API. Long enough
+# to matter, short enough that a freshly refreshed token starts working
+# quickly without a server restart.
+_NEGATIVE_TTL_SECONDS = 10.0
 _MAX_ENTRIES = 1000
 _PROBE_TIMEOUT = 5
 
-_cache: dict[str, tuple[float, bool]] = {}
+# Cache holds ONLY known-invalid tokens. Valid tokens are never cached so
+# revocation that happens mid-session is picked up on the next request.
+_invalid_cache: dict[str, float] = {}
 _lock = threading.Lock()
 
 
@@ -43,34 +52,32 @@ def _hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def _cache_lookup(token: str) -> bool | None:
-    """Return cached validity, or None if no fresh entry exists."""
+def _is_known_invalid(token: str) -> bool:
     h = _hash(token)
     now = time.monotonic()
     with _lock:
-        cached = _cache.get(h)
-        if cached and cached[0] > now:
-            return cached[1]
-    return None
+        expiry = _invalid_cache.get(h)
+        return expiry is not None and expiry > now
 
 
-def _cache_store(token: str, valid: bool) -> None:
+def _mark_invalid(token: str) -> None:
     h = _hash(token)
     now = time.monotonic()
     with _lock:
-        _cache[h] = (now + _TTL_SECONDS, valid)
-        if len(_cache) > _MAX_ENTRIES:
-            expired = [k for k, (exp, _) in _cache.items() if exp < now]
-            for k in expired:
-                _cache.pop(k, None)
+        _invalid_cache[h] = now + _NEGATIVE_TTL_SECONDS
+        if len(_invalid_cache) > _MAX_ENTRIES:
+            stale = [k for k, exp in _invalid_cache.items() if exp < now]
+            for k in stale:
+                _invalid_cache.pop(k, None)
 
 
-def _probe_sync(token: str) -> tuple[bool, bool]:
-    """Run the probe in a worker thread. Returns (is_valid, is_definitive).
+def _probe_sync(token: str) -> bool | None:
+    """Run the probe in a worker thread.
 
-    is_definitive is False on network errors so the caller knows not to cache
-    the fail-open True — we want to retry on the next request, not lock in a
-    transient hiccup for the full TTL.
+    Returns:
+      True   — API accepted the token
+      False  — API rejected with 401/403 (token revoked or otherwise invalid)
+      None   — network error; caller should fail open without caching
     """
     headers = (
         {"Authorization": f"Bearer {token}"}
@@ -86,19 +93,28 @@ def _probe_sync(token: str) -> tuple[bool, bool]:
         )
     except requests.RequestException as exc:
         logger.warning("Token probe network error: %s — failing open", exc)
-        return True, False
+        return None
 
     valid = resp.status_code not in (401, 403)
     logger.debug("Token probe: status=%d valid=%s", resp.status_code, valid)
-    return valid, True
+    return valid
 
 
 async def is_token_valid_remote(token: str) -> bool:
-    """Async-friendly wrapper: cache lookup first, probe in a thread on miss."""
-    cached = _cache_lookup(token)
-    if cached is not None:
-        return cached
-    valid, definitive = await anyio.to_thread.run_sync(_probe_sync, token)
-    if definitive:
-        _cache_store(token, valid)
-    return valid
+    """Return False if the Metricool API has rejected this token recently.
+
+    Negative-only caching: a fresh 401 from the API short-circuits subsequent
+    requests for a few seconds (so a burst of tool calls all surface as
+    401+WWW-Authenticate instead of repeatedly probing). Positive results are
+    not cached — local 'exp' checking in oauth.validate_and_extract already
+    blocks most expired tokens, and we want revocation detected on the very
+    next request.
+    """
+    if _is_known_invalid(token):
+        return False
+    result = await anyio.to_thread.run_sync(_probe_sync, token)
+    if result is False:
+        _mark_invalid(token)
+        return False
+    # True or None (network error → fail open)
+    return True

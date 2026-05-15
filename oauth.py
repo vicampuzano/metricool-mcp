@@ -1,18 +1,14 @@
 """
-OAuth 2.0 discovery endpoints and JWT validation.
+OAuth 2.0 discovery endpoints and JWT expiry detection.
 
 Mirrors the Java remote-server OAuth implementation:
   - OAuthResource.java          → /.well-known/* endpoints
   - OAuthProtectedResourceMetadata.java
   - OAuthAuthorizationServerMetadata.java
-  - MetricoolJwtDecoder.java    → HMAC-SHA JWT validation
+  - MetricoolJwtDecoder.java    → reads 'exp' to surface expired tokens as 401
 
-The MCP server does NOT run an OAuth server itself.
-It acts as a protected resource that points clients to
-app.metricool.com for authorization/token exchange.
-
-Required environment variables:
-  JWT_SECRET   HMAC secret shared with Metricool's OAuth server (mandatory in production)
+Signature verification is delegated to the Metricool API (see
+token_check.is_token_valid_remote and the upstream call inside the tools).
 
 Optional environment variables (defaults match production values):
   OAUTH_ISSUER                   default: https://ai.metricool.com
@@ -22,10 +18,13 @@ Optional environment variables (defaults match production values):
   OAUTH_REGISTRATION_ENDPOINT    default: https://app.metricool.com/oauth/register
 """
 
+import base64
+import json
 import logging
 import os
+import time
+import zlib
 
-import jwt
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
@@ -47,7 +46,6 @@ TOKEN_ENDPOINT = os.environ.get(
 REGISTRATION_ENDPOINT = os.environ.get(
     "OAUTH_REGISTRATION_ENDPOINT", "https://app.metricool.com/oauth/register"
 )
-JWT_SECRET = os.environ.get("JWT_SECRET", "")
 
 # ---------------------------------------------------------------------------
 # Discovery endpoint handlers
@@ -66,6 +64,7 @@ async def oauth_protected_resource(request: Request) -> JSONResponse:
             "authorization_servers": [ISSUER],
             "scopes_supported": ["mcp:read", "mcp:write"],
             "bearer_methods_supported": ["header"],
+            "tls_client_certificate_bound_access_tokens": False,
             "resource_documentation": "https://metricool.com/integrations/mcp",
             "resource_policy_uri": "https://metricool.com/privacy-policy/",
             "resource_tos_uri": "https://metricool.com/legal-terms/",
@@ -104,7 +103,7 @@ OAUTH_ROUTES = [
 ]
 
 # ---------------------------------------------------------------------------
-# JWT validation  (mirrors MetricoolJwtDecoder.java)
+# JWT expiry detection  (mirrors MetricoolJwtDecoder.java)
 # ---------------------------------------------------------------------------
 
 
@@ -114,73 +113,92 @@ def is_jwt(token: str) -> bool:
     return len(parts) == 3
 
 
+def _b64url_decode(segment: str) -> bytes:
+    """Decode a JWT base64url segment, restoring stripped '=' padding."""
+    padding = "=" * (-len(segment) % 4)
+    return base64.urlsafe_b64decode(segment + padding)
+
+
+def _decode_jwt_claims(token: str) -> dict | None:
+    """Return JWT claims dict or None if the payload is unreadable.
+
+    Mirrors what jjwt does in MetricoolJwtDecoder: handles JWTs whose payload
+    has been compressed (header "zip":"DEF" — Metricool's OAuth tokens use
+    this). PyJWT 2.x does not support zip:DEF natively, so we decompress
+    manually and then parse the JSON.
+
+    Signature is NOT verified here — the Metricool API is the authority on
+    signature validity. The only purpose of this decode is to read 'exp'
+    locally so an expired token surfaces as 401+WWW-Authenticate before any
+    tool runs (matching the Java behavior).
+    """
+    try:
+        _, payload_seg, _ = token.split(".")
+    except ValueError:
+        return None
+    try:
+        raw = _b64url_decode(payload_seg)
+    except (ValueError, TypeError):
+        return None
+
+    candidates: list[bytes] = [raw]
+    # zlib-wrapped (header 0x78 ...) — what java.util.zip.Deflater emits by
+    # default, and what jjwt's "DEF" codec produces.
+    try:
+        candidates.append(zlib.decompress(raw))
+    except zlib.error:
+        pass
+    # raw DEFLATE (RFC 1951, no zlib wrapper) — what the JWT spec literally
+    # specifies for "zip":"DEF". Some issuers honor that strictly.
+    try:
+        candidates.append(zlib.decompress(raw, -zlib.MAX_WBITS))
+    except zlib.error:
+        pass
+
+    for data in candidates:
+        try:
+            obj = json.loads(data)
+        except (UnicodeDecodeError, ValueError):
+            continue
+        if isinstance(obj, dict):
+            return obj
+    return None
+
+
 def validate_and_extract(token: str) -> str:
     """
     Validate a JWT and return the raw token so it can be forwarded as
     Authorization: Bearer to the Metricool API.
 
-    Supports two token types:
-    1. HS256 JWTs signed with JWT_SECRET (legacy / internal tokens)
-    2. OAuth access tokens signed by the authorization server (RS256, etc.)
-       — these are passed through; the Metricool API validates them.
+    Strategy (mirrors Java's MetricoolJwtDecoder):
+      1. If it doesn't look like a JWT (no dots), treat as a plain API key.
+      2. Decode the payload locally (handling zip:DEF compression) and reject
+         expired tokens with ValueError so the middleware can return 401 +
+         WWW-Authenticate, letting OAuth-aware clients refresh.
+      3. If the payload can't be decoded, pass through and let the Metricool
+         API be the authority — token_check.is_token_valid_remote will probe
+         it before the tool runs.
 
-    Raises ValueError with a user-friendly message on failure.
-
-    If JWT_SECRET is not configured (local/dev mode) the token is trusted as-is.
+    Signature verification is delegated to the Metricool API: PyJWT cannot
+    decompress zip:DEF payloads, and the shared secret stored in JWT_SECRET
+    is not the same byte sequence Java's MetricoolSecretDecoder feeds to its
+    HMAC primitive, so verifying locally would either reject valid tokens or
+    require duplicating the XOR-mask trick. The API will reject any token
+    with a bad signature anyway.
     """
     if not is_jwt(token):
         # Plain API key — no JWT validation needed
         return token
 
-    if not JWT_SECRET:
-        logger.warning(
-            "JWT_SECRET not set — skipping JWT signature validation. "
-            "Set JWT_SECRET in production."
-        )
+    claims = _decode_jwt_claims(token)
+    if claims is None:
+        # Payload not decodable even after trying zlib variants. Let the
+        # remote probe in middleware decide; the API is the authority.
+        logger.debug("JWT payload not decodable locally — forwarding to API")
         return token
 
-    # Peek at the algorithm to decide validation strategy
-    try:
-        header = jwt.get_unverified_header(token)
-    except jwt.DecodeError:
-        raise ValueError("Token is malformed.")
+    exp = claims.get("exp")
+    if isinstance(exp, (int, float)) and exp <= time.time():
+        raise ValueError("Token has expired.")
 
-    alg = header.get("alg", "")
-
-    if alg == "HS256":
-        # Internal token — validate locally with shared secret
-        try:
-            jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
-            logger.debug("HS256 JWT validated successfully")
-            return token
-        except jwt.ExpiredSignatureError:
-            raise ValueError("Token has expired.")
-        except jwt.InvalidSignatureError:
-            raise ValueError("Token signature is invalid.")
-        except jwt.DecodeError:
-            raise ValueError("Token is malformed.")
-        except jwt.InvalidTokenError as exc:
-            raise ValueError(f"Invalid token: {exc}")
-    else:
-        # OAuth token (RS256, etc.) — the Metricool API validates the signature.
-        # Best-effort 'exp' check (no signature verification) so an expired
-        # token returns 401+WWW-Authenticate before the request reaches the
-        # API, letting OAuth-aware clients refresh proactively. If the payload
-        # is not decodable as JSON (e.g. compressed JWE-like tokens) we fall
-        # back to pass-through and let the API be the authority.
-        try:
-            jwt.decode(
-                token,
-                options={"verify_signature": False, "verify_exp": True},
-            )
-        except jwt.ExpiredSignatureError:
-            raise ValueError("Token has expired.")
-        except jwt.InvalidTokenError as exc:
-            logger.debug(
-                "OAuth JWT (alg=%s) payload not decodable locally (%s); "
-                "passing through to API",
-                alg,
-                exc,
-            )
-        logger.debug("OAuth JWT (alg=%s) accepted, forwarding to API", alg)
-        return token
+    return token
