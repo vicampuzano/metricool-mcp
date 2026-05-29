@@ -20,25 +20,23 @@ def _get_tool(name):
     raise AssertionError(f"tool {name} not found")
 
 
-def test_media_declared_as_openai_file_param():
+def test_mediafile_is_single_object_file_param():
     tool = _get_tool("create_scheduled_post")
-    # `media` is declared as the OpenAI file param so ChatGPT rewrites attached
-    # files into objects with a download_url before calling us. This lives in
-    # _meta, which Claude/other clients ignore.
-    assert tool.meta == {"openai/fileParams": ["media"]}
+    # openai/fileParams only supports a single top-level OBJECT field (not
+    # arrays). mediaFile is that object; lives in _meta, ignored by Claude.
+    assert tool.meta == {"openai/fileParams": ["mediaFile"]}
     props = tool.inputSchema.get("properties", {})
-    assert "mediaFiles" not in props  # no leftover field from earlier iterations
-    media = props["media"]
-    assert media["type"] == "array"
-    # items accept a plain URL string OR an inline file object (download_url is
-    # the rewrite path ChatGPT needs). Must be inline — no $ref, no null union.
-    branches = media["items"]["anyOf"]
-    assert {"type": "string"} in branches
-    obj = next(b for b in branches if b.get("type") == "object")
-    assert obj["properties"]["download_url"]["type"] == "string"
-    assert obj["required"] == ["download_url", "file_id"]
-    assert "$ref" not in str(media)
-    assert "null" not in str(media)
+    mf = props["mediaFile"]
+    assert mf["type"] == "object", "mediaFile must be a single object, not an array"
+    # Inline — no $ref, no null union — so OpenAI can find download_url.
+    assert "$ref" not in str(mf)
+    assert "anyOf" not in mf
+    assert mf["properties"]["download_url"]["type"] == "string"
+    assert mf["required"] == ["download_url", "file_id"]
+    assert "mediaFile" not in tool.inputSchema.get("required", [])
+    # `media` stays a plain string-URL array — untouched for Claude (no file
+    # object leaked into it).
+    assert "download_url" not in str(props["media"])
 
 
 def test_other_tools_have_no_filepicker_meta():
