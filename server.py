@@ -29,6 +29,11 @@ from validators import validate_post_info
 class MediaFile(BaseModel):
     """A file attached via ChatGPT's file picker (OpenAI Apps SDK).
 
+    Declared as a SINGLE top-level object field (not an array): OpenAI's
+    proxied-mount file handling only supports a single file object per param —
+    arrays/nested file fields fail with "File arg rewrite paths are required
+    when proxied mounts are present". See developers.openai.com/apps-sdk.
+
     Only download_url and file_id are required; the rest are informational.
     """
 
@@ -406,8 +411,8 @@ The date must be in the future. DO NOT modify the user's text — just report an
         idempotentHint=False,
         openWorldHint=True,
     ),
-    # Tells ChatGPT (OpenAI Apps SDK) to render a file picker over `mediaFiles`.
-    meta={"openai/fileParams": ["mediaFiles"]},
+    # Tells ChatGPT (OpenAI Apps SDK) to render a file picker over `mediaFile`.
+    meta={"openai/fileParams": ["mediaFile"]},
 )
 def create_scheduled_post(
     blog_id: str,
@@ -425,7 +430,7 @@ def create_scheduled_post(
     youtube_title: str = "",
     youtube_made_for_kids: bool = False,
     tiktok_title: str = "",
-    mediaFiles: list[MediaFile] | None = None,
+    mediaFile: MediaFile | None = None,
 ) -> dict:
     """
     Args:
@@ -444,13 +449,13 @@ def create_scheduled_post(
         youtube_title: Video title (required when youtube in networks).
         youtube_made_for_kids: Whether the video is made for kids (required when youtube in networks).
         tiktok_title: Video title (required when tiktok in networks).
-        mediaFiles: Optional. Files attached by ChatGPT's file picker. Each entry's download_url is appended to the post's media before scheduling. Ignored by non-ChatGPT clients.
+        mediaFile: Optional. A single file attached by ChatGPT's file picker. Its download_url is appended to the post's media before scheduling. Ignored by non-ChatGPT clients.
     """
     nets = _resolve_networks(networks)
     logger.info("create_scheduled_post called: date=%s blog_id=%s tz=%s nets=%s", date, blog_id, timezone, nets)
-    # ChatGPT-attached files: fold their download URLs into the media list so
-    # they go through the same normalization path as any other URL.
-    media_list = list(media or []) + extract_download_urls(mediaFiles)
+    # ChatGPT-attached file: fold its download URL into the media list so it
+    # goes through the same normalization path as any other URL.
+    media_list = list(media or []) + extract_download_urls([mediaFile] if mediaFile else [])
     post_info = _build_post_info(
         nets, text, date, timezone, media_list, draft, content_type, first_comment,
         pinterest_board_id, pinterest_pin_title, pinterest_pin_link,
