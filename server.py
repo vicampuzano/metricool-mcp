@@ -42,8 +42,9 @@ from validators import validate_post_info
 _MEDIA_FILES_SCHEMA = {
     "type": "array",
     "description": (
-        "Optional. Files attached by ChatGPT's file picker. Each entry's "
-        "download_url is appended to the post's media array before scheduling. "
+        "Use this for ANY image or video the user attached in the chat or that "
+        "you (ChatGPT) generated — NOT the `media` field. Each entry's "
+        "download_url is appended to the post's media before scheduling. "
         "Ignored by non-ChatGPT clients."
     ),
     "items": {
@@ -411,7 +412,15 @@ Character limits (do NOT split into threads or truncate — report the error):
 - X/Twitter: 280 chars max.
 - Bluesky: 300 chars max.
 
-Media requirements:
+Media — two SEPARATE inputs, pick the right one:
+- `media`: ONLY public http(s) URLs the user explicitly gave you. NEVER put a
+  local/sandbox path here (e.g. /mnt/data/...), and NEVER a file the user
+  attached in the chat or that you generated.
+- `mediaFiles`: ALWAYS use this for any image/video the user attached in the
+  chat or that you (ChatGPT) generated. Put the attached file here — do NOT
+  route attachments through `media`.
+
+Media requirements (the asset can come from either `media` or `mediaFiles`):
 - Instagram POST/REEL/STORY: requires media. REEL needs video. STORY has no text.
 - Pinterest: requires media + pinterest_board_id, pinterest_pin_title, pinterest_pin_link.
 - YouTube: requires media (video) + youtube_title.
@@ -455,7 +464,7 @@ def create_scheduled_post(
         timezone: IANA timezone (e.g. "Europe/Madrid"). Use the value from get_brand_settings.
         networks: Social networks to publish to (e.g. ["twitter"] or ["twitter","instagram"]). Accepted: twitter, instagram, facebook, linkedin, bluesky, threads, pinterest, youtube, tiktok, twitch.
         text: Post text content. Required for all networks except Instagram Story.
-        media: List of public media URLs (images/videos). Required for Instagram, Pinterest, YouTube, TikTok.
+        media: ONLY public http(s) media URLs (images/videos) the user explicitly provided. NEVER a local/sandbox path (e.g. /mnt/data/...) or a chat-attached/generated file — use mediaFiles for those. Required (via media or mediaFiles) for Instagram, Pinterest, YouTube, TikTok.
         draft: Save as draft instead of scheduling (default false).
         content_type: POST, REEL, or STORY — only used for Instagram and Facebook (default POST).
         first_comment: Optional first comment to add after publishing.
@@ -465,7 +474,7 @@ def create_scheduled_post(
         youtube_title: Video title (required when youtube in networks).
         youtube_made_for_kids: Whether the video is made for kids (required when youtube in networks).
         tiktok_title: Video title (required when tiktok in networks).
-        mediaFiles: Optional. Files attached by ChatGPT's file picker. Each entry's download_url is appended to the post's media before scheduling. Ignored by non-ChatGPT clients.
+        mediaFiles: Use for ANY image/video the user attached in the chat or that you generated (NOT media). Each entry's download_url is appended to the post's media before scheduling. Ignored by non-ChatGPT clients.
     """
     nets = _resolve_networks(networks)
     logger.info("create_scheduled_post called: date=%s blog_id=%s tz=%s nets=%s", date, blog_id, timezone, nets)
