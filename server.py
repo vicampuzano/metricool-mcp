@@ -16,11 +16,26 @@ from typing import Optional
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
+from pydantic import BaseModel, Field
 
 from auth import get_api_key
+from chatgpt_files import extract_download_urls
 from client import MetricoolClient
 from fields_loader import available_connectors_for_network, filter_fields, load_fields
+from media_normalizer import normalize_media_urls
 from validators import validate_post_info
+
+
+class MediaFile(BaseModel):
+    """A file attached via ChatGPT's file picker (OpenAI Apps SDK).
+
+    Only download_url and file_id are required; the rest are informational.
+    """
+
+    download_url: str = Field(description="Public URL ChatGPT serves the file from.")
+    file_id: str = Field(description="ChatGPT's identifier for the file.")
+    mime_type: str | None = Field(default=None, description="MIME type, if known.")
+    file_name: str | None = Field(default=None, description="Original file name, if known.")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -391,6 +406,8 @@ The date must be in the future. DO NOT modify the user's text — just report an
         idempotentHint=False,
         openWorldHint=True,
     ),
+    # Tells ChatGPT (OpenAI Apps SDK) to render a file picker over `mediaFiles`.
+    meta={"openai/fileParams": ["mediaFiles"]},
 )
 def create_scheduled_post(
     blog_id: str,
@@ -408,6 +425,7 @@ def create_scheduled_post(
     youtube_title: str = "",
     youtube_made_for_kids: bool = False,
     tiktok_title: str = "",
+    mediaFiles: list[MediaFile] | None = None,
 ) -> dict:
     """
     Args:
@@ -426,16 +444,24 @@ def create_scheduled_post(
         youtube_title: Video title (required when youtube in networks).
         youtube_made_for_kids: Whether the video is made for kids (required when youtube in networks).
         tiktok_title: Video title (required when tiktok in networks).
+        mediaFiles: Optional. Files attached by ChatGPT's file picker. Each entry's download_url is appended to the post's media before scheduling. Ignored by non-ChatGPT clients.
     """
     nets = _resolve_networks(networks)
     logger.info("create_scheduled_post called: date=%s blog_id=%s tz=%s nets=%s", date, blog_id, timezone, nets)
+    # ChatGPT-attached files: fold their download URLs into the media list so
+    # they go through the same normalization path as any other URL.
+    media_list = list(media or []) + extract_download_urls(mediaFiles)
     post_info = _build_post_info(
-        nets, text, date, timezone, media, draft, content_type, first_comment,
+        nets, text, date, timezone, media_list, draft, content_type, first_comment,
         pinterest_board_id, pinterest_pin_title, pinterest_pin_link,
         youtube_title, youtube_made_for_kids, tiktok_title,
     )
+    client = MetricoolClient(get_api_key())
+    # Normalize media URLs BEFORE validating (so validation runs on the
+    # Metricool-hosted URLs, not the raw Drive/Instagram/YouTube links).
+    post_info["media"] = normalize_media_urls(post_info.get("media") or [], client)
     validate_post_info(post_info)
-    result = MetricoolClient(get_api_key()).create_scheduled_post(blog_id, post_info)
+    result = client.create_scheduled_post(blog_id, post_info)
     logger.info("create_scheduled_post result: %s", result)
     return result
 
@@ -470,9 +496,12 @@ def update_scheduled_post(
     """
     logger.info("update_scheduled_post called: id=%s uuid=%s blog_id=%s", id, uuid, blog_id)
     post_info = _parse_info(info)
+    client = MetricoolClient(get_api_key())
+    # Normalize media URLs BEFORE validating (same order as create).
+    post_info["media"] = normalize_media_urls(post_info.get("media") or [], client)
     validate_post_info(post_info)
 
-    result = MetricoolClient(get_api_key()).update_scheduled_post(id, uuid, blog_id, post_info)
+    result = client.update_scheduled_post(id, uuid, blog_id, post_info)
     logger.info("update_scheduled_post result: %s", result)
     return result
 

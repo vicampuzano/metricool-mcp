@@ -136,6 +136,27 @@ class MetricoolClient:
         return self._get("/api/v2/settings/brands")
 
     # -------------------------------------------------------------------------
+    # Media
+    # -------------------------------------------------------------------------
+
+    def normalize_image_url(self, url: str) -> str:
+        """Normalize a media URL via the Metricool backend.
+
+        The backend downloads the asset and returns a new URL hosted on
+        Metricool infrastructure. Unlike the other endpoints, the response body
+        is plain text (the new URL), so this does not go through ``_request``
+        (which expects JSON). Auth failures still surface as TokenInvalidError.
+        """
+        url_ = f"{_BASE_URL}/api/actions/normalize/image/url"
+        params = {"url": url, "folder": "PLANNER", "integrationSource": "MCP"}
+        logger.debug("GET %s url=%s", url_, url)
+        resp = self._session.get(url_, params=params, timeout=30)
+        if resp.status_code in (401, 403):
+            raise TokenInvalidError(resp.status_code, resp.text[:200])
+        resp.raise_for_status()
+        return resp.text.strip()
+
+    # -------------------------------------------------------------------------
     # Scheduler
     # -------------------------------------------------------------------------
 
