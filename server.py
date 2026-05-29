@@ -442,9 +442,12 @@ def create_scheduled_post(
     """
     nets = _resolve_networks(networks)
     logger.info("create_scheduled_post called: date=%s blog_id=%s tz=%s nets=%s", date, blog_id, timezone, nets)
+    # TEMP diagnostic: log the raw media argument shape ChatGPT/Claude sends.
+    logger.info("create_scheduled_post raw media arg: %r", media)
     # `media` may arrive as plain URL strings (all clients) and/or file objects
     # (ChatGPT attachments rewritten to {download_url,...}); flatten to URLs.
     media_list = coerce_media_items(media)
+    logger.info("create_scheduled_post coerced media URLs: %r", media_list)
     post_info = _build_post_info(
         nets, text, date, timezone, media_list, draft, content_type, first_comment,
         pinterest_board_id, pinterest_pin_title, pinterest_pin_link,
@@ -453,9 +456,15 @@ def create_scheduled_post(
     client = MetricoolClient(get_api_key())
     # Normalize media URLs BEFORE validating (so validation runs on the
     # Metricool-hosted URLs, not the raw Drive/Instagram/YouTube links).
-    post_info["media"] = normalize_media_urls(post_info.get("media") or [], client)
-    validate_post_info(post_info)
-    result = client.create_scheduled_post(blog_id, post_info)
+    try:
+        post_info["media"] = normalize_media_urls(post_info.get("media") or [], client)
+        logger.info("create_scheduled_post normalized media: %r", post_info["media"])
+        validate_post_info(post_info)
+        result = client.create_scheduled_post(blog_id, post_info)
+    except Exception:
+        # TEMP diagnostic: surface which step failed (normalize/validate/api).
+        logger.exception("create_scheduled_post failed")
+        raise
     logger.info("create_scheduled_post result: %s", result)
     return result
 
