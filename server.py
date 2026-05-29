@@ -16,7 +16,6 @@ from typing import Optional
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
-from pydantic import BaseModel, Field
 
 from auth import get_api_key
 from chatgpt_files import extract_download_urls
@@ -25,22 +24,32 @@ from fields_loader import available_connectors_for_network, filter_fields, load_
 from media_normalizer import normalize_media_urls
 from validators import validate_post_info
 
-
-class MediaFile(BaseModel):
-    """A file attached via ChatGPT's file picker (OpenAI Apps SDK).
-
-    Declared as a SINGLE top-level object field (not an array): OpenAI's
-    proxied-mount file handling only supports a single file object per param —
-    arrays/nested file fields fail with "File arg rewrite paths are required
-    when proxied mounts are present". See developers.openai.com/apps-sdk.
-
-    Only download_url and file_id are required; the rest are informational.
-    """
-
-    download_url: str = Field(description="Public URL ChatGPT serves the file from.")
-    file_id: str = Field(description="ChatGPT's identifier for the file.")
-    mime_type: str | None = Field(default=None, description="MIME type, if known.")
-    file_name: str | None = Field(default=None, description="Original file name, if known.")
+# JSON schema for the ChatGPT file-picker param (OpenAI Apps SDK).
+#
+# It MUST be a single, direct, inline object with download_url/file_id as
+# plain string properties. OpenAI does NOT resolve $ref/$defs and does NOT
+# accept arrays or nullable unions for file params — any of those makes
+# ChatGPT fail to locate the URL to proxy-rewrite with:
+#   "File arg rewrite paths are required when proxied mounts are present".
+# pydantic can't emit this exact shape for an optional model param, so the
+# `mediaFile` param is typed loosely (dict) and its advertised schema is
+# patched in via _patch_media_file_schema() after tool registration.
+# See developers.openai.com/apps-sdk/build/mcp-server.
+_MEDIA_FILE_SCHEMA = {
+    "type": "object",
+    "description": (
+        "Optional. A file attached by ChatGPT's file picker. Its download_url "
+        "is appended to the post's media before scheduling. Ignored by "
+        "non-ChatGPT clients."
+    ),
+    "properties": {
+        "download_url": {"type": "string"},
+        "file_id": {"type": "string"},
+        "mime_type": {"type": "string"},
+        "file_name": {"type": "string"},
+    },
+    "required": ["download_url", "file_id"],
+}
 
 logging.basicConfig(
     level=logging.INFO,
@@ -430,7 +439,7 @@ def create_scheduled_post(
     youtube_title: str = "",
     youtube_made_for_kids: bool = False,
     tiktok_title: str = "",
-    mediaFile: MediaFile | None = None,
+    mediaFile: dict | None = None,
 ) -> dict:
     """
     Args:
@@ -469,6 +478,32 @@ def create_scheduled_post(
     result = client.create_scheduled_post(blog_id, post_info)
     logger.info("create_scheduled_post result: %s", result)
     return result
+
+
+def _patch_media_file_schema() -> None:
+    """Replace the auto-generated `mediaFile` schema with the inline object
+    shape OpenAI's Apps SDK requires (see _MEDIA_FILE_SCHEMA).
+
+    FastMCP/pydantic emits an `anyOf [{$ref}, null]` for the optional dict
+    param, which ChatGPT can't introspect to find download_url. We overwrite
+    it with a direct inline object and drop the unused $def.
+    """
+    tool = mcp._tool_manager.get_tool("create_scheduled_post")
+    if tool is None:  # pragma: no cover - defensive
+        return
+    params = tool.parameters
+    params.setdefault("properties", {})["mediaFile"] = dict(_MEDIA_FILE_SCHEMA)
+    required = params.get("required")
+    if isinstance(required, list) and "mediaFile" in required:
+        required.remove("mediaFile")  # optional — never force clients to send it
+    defs = params.get("$defs")
+    if defs:
+        defs.pop("MediaFile", None)
+        if not defs:
+            params.pop("$defs", None)
+
+
+_patch_media_file_schema()
 
 
 @mcp.tool(

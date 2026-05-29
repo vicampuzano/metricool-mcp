@@ -22,11 +22,21 @@ def _get_tool(name):
 
 def test_create_tool_exposes_mediafile_and_meta():
     tool = _get_tool("create_scheduled_post")
-    props = tool.inputSchema.get("properties", {})
+    schema = tool.inputSchema
+    props = schema.get("properties", {})
     assert "mediaFile" in props, "mediaFile must be in the input schema"
-    # Must be declared as a single file object, NOT an array — OpenAI's
-    # proxied-mount handling rejects array/nested file params.
-    assert "array" not in str(props["mediaFile"]), "mediaFile must not be an array"
+    mf = props["mediaFile"]
+    # OpenAI requires a direct inline object with string download_url/file_id —
+    # NOT an array, NOT a $ref, NOT a nullable union (else "File arg rewrite
+    # paths are required when proxied mounts are present").
+    assert mf.get("type") == "object", "mediaFile must be a direct object"
+    assert "$ref" not in str(mf), "mediaFile must be inline, not a $ref"
+    assert "anyOf" not in mf, "mediaFile must not be a nullable union"
+    assert mf["properties"]["download_url"]["type"] == "string"
+    assert mf["properties"]["file_id"]["type"] == "string"
+    assert mf["required"] == ["download_url", "file_id"]
+    # Optional: clients (text-only posts) must not be forced to send it.
+    assert "mediaFile" not in schema.get("required", [])
     assert tool.meta == {"openai/fileParams": ["mediaFile"]}
 
 
@@ -99,7 +109,7 @@ def test_chatgpt_mediafile_merged_before_normalize(monkeypatch):
         networks=["instagram"],
         text="hi",
         media=["https://existing/a.jpg"],
-        mediaFile=server.MediaFile(download_url="https://chatgpt/b.jpg", file_id="f1"),
+        mediaFile={"download_url": "https://chatgpt/b.jpg", "file_id": "f1"},
     )
     # ChatGPT download_url appended to existing media, then handed to normalize
     assert seen["normalized_input"] == ["https://existing/a.jpg", "https://chatgpt/b.jpg"]
