@@ -26,29 +26,36 @@ from validators import validate_post_info
 
 # JSON schema for the ChatGPT file-picker param (OpenAI Apps SDK).
 #
-# It MUST be a single, direct, inline object with download_url/file_id as
-# plain string properties. OpenAI does NOT resolve $ref/$defs and does NOT
-# accept arrays or nullable unions for file params — any of those makes
-# ChatGPT fail to locate the URL to proxy-rewrite with:
+# This mirrors EXACTLY the schema emitted by the proven-working Java
+# implementation (SchedulerOpenAiFileToolRewriter): a `mediaFiles` ARRAY whose
+# items are INLINE objects with download_url/file_id as plain string props.
+#
+# The critical requirement is that the schema be fully INLINE — no `$ref`/
+# `$defs` indirection and no nullable `anyOf [..., null]` wrapper. OpenAI walks
+# the schema to find download_url to proxy-rewrite; a $ref or null-union hides
+# it and ChatGPT fails with:
 #   "File arg rewrite paths are required when proxied mounts are present".
-# pydantic can't emit this exact shape for an optional model param, so the
-# `mediaFile` param is typed loosely (dict) and its advertised schema is
-# patched in via _patch_media_file_schema() after tool registration.
-# See developers.openai.com/apps-sdk/build/mcp-server.
-_MEDIA_FILE_SCHEMA = {
-    "type": "object",
+# (An array is fine — Java uses one — as long as it's inline.) pydantic emits
+# anyOf[{$ref}, null] for the optional param, so `mediaFiles` is typed loosely
+# (list) and its advertised schema is patched in via _patch_media_file_schema()
+# after tool registration.
+_MEDIA_FILES_SCHEMA = {
+    "type": "array",
     "description": (
-        "Optional. A file attached by ChatGPT's file picker. Its download_url "
-        "is appended to the post's media before scheduling. Ignored by "
-        "non-ChatGPT clients."
+        "Optional. Files attached by ChatGPT's file picker. Each entry's "
+        "download_url is appended to the post's media array before scheduling. "
+        "Ignored by non-ChatGPT clients."
     ),
-    "properties": {
-        "download_url": {"type": "string"},
-        "file_id": {"type": "string"},
-        "mime_type": {"type": "string"},
-        "file_name": {"type": "string"},
+    "items": {
+        "type": "object",
+        "properties": {
+            "download_url": {"type": "string"},
+            "file_id": {"type": "string"},
+            "mime_type": {"type": "string"},
+            "file_name": {"type": "string"},
+        },
+        "required": ["download_url", "file_id"],
     },
-    "required": ["download_url", "file_id"],
 }
 
 logging.basicConfig(
@@ -420,8 +427,8 @@ The date must be in the future. DO NOT modify the user's text — just report an
         idempotentHint=False,
         openWorldHint=True,
     ),
-    # Tells ChatGPT (OpenAI Apps SDK) to render a file picker over `mediaFile`.
-    meta={"openai/fileParams": ["mediaFile"]},
+    # Tells ChatGPT (OpenAI Apps SDK) to render a file picker over `mediaFiles`.
+    meta={"openai/fileParams": ["mediaFiles"]},
 )
 def create_scheduled_post(
     blog_id: str,
@@ -439,7 +446,7 @@ def create_scheduled_post(
     youtube_title: str = "",
     youtube_made_for_kids: bool = False,
     tiktok_title: str = "",
-    mediaFile: dict | None = None,
+    mediaFiles: list | None = None,
 ) -> dict:
     """
     Args:
@@ -458,13 +465,13 @@ def create_scheduled_post(
         youtube_title: Video title (required when youtube in networks).
         youtube_made_for_kids: Whether the video is made for kids (required when youtube in networks).
         tiktok_title: Video title (required when tiktok in networks).
-        mediaFile: Optional. A single file attached by ChatGPT's file picker. Its download_url is appended to the post's media before scheduling. Ignored by non-ChatGPT clients.
+        mediaFiles: Optional. Files attached by ChatGPT's file picker. Each entry's download_url is appended to the post's media before scheduling. Ignored by non-ChatGPT clients.
     """
     nets = _resolve_networks(networks)
     logger.info("create_scheduled_post called: date=%s blog_id=%s tz=%s nets=%s", date, blog_id, timezone, nets)
-    # ChatGPT-attached file: fold its download URL into the media list so it
-    # goes through the same normalization path as any other URL.
-    media_list = list(media or []) + extract_download_urls([mediaFile] if mediaFile else [])
+    # ChatGPT-attached files: fold their download URLs into the media list so
+    # they go through the same normalization path as any other URL.
+    media_list = list(media or []) + extract_download_urls(mediaFiles)
     post_info = _build_post_info(
         nets, text, date, timezone, media_list, draft, content_type, first_comment,
         pinterest_board_id, pinterest_pin_title, pinterest_pin_link,
@@ -480,30 +487,25 @@ def create_scheduled_post(
     return result
 
 
-def _patch_media_file_schema() -> None:
-    """Replace the auto-generated `mediaFile` schema with the inline object
-    shape OpenAI's Apps SDK requires (see _MEDIA_FILE_SCHEMA).
+def _patch_media_files_schema() -> None:
+    """Replace the auto-generated `mediaFiles` schema with the inline array
+    shape OpenAI's Apps SDK requires (see _MEDIA_FILES_SCHEMA).
 
-    FastMCP/pydantic emits an `anyOf [{$ref}, null]` for the optional dict
-    param, which ChatGPT can't introspect to find download_url. We overwrite
-    it with a direct inline object and drop the unused $def.
+    FastMCP/pydantic emits an `anyOf [..., null]` for the optional list param,
+    which ChatGPT can't introspect to find download_url. We overwrite it with
+    the inline array (matching the proven Java implementation).
     """
     tool = mcp._tool_manager.get_tool("create_scheduled_post")
     if tool is None:  # pragma: no cover - defensive
         return
     params = tool.parameters
-    params.setdefault("properties", {})["mediaFile"] = dict(_MEDIA_FILE_SCHEMA)
+    params.setdefault("properties", {})["mediaFiles"] = dict(_MEDIA_FILES_SCHEMA)
     required = params.get("required")
-    if isinstance(required, list) and "mediaFile" in required:
-        required.remove("mediaFile")  # optional — never force clients to send it
-    defs = params.get("$defs")
-    if defs:
-        defs.pop("MediaFile", None)
-        if not defs:
-            params.pop("$defs", None)
+    if isinstance(required, list) and "mediaFiles" in required:
+        required.remove("mediaFiles")  # optional — never force clients to send it
 
 
-_patch_media_file_schema()
+_patch_media_files_schema()
 
 
 @mcp.tool(

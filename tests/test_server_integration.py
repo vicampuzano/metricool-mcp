@@ -20,24 +20,26 @@ def _get_tool(name):
     raise AssertionError(f"tool {name} not found")
 
 
-def test_create_tool_exposes_mediafile_and_meta():
+def test_create_tool_exposes_mediafiles_and_meta():
     tool = _get_tool("create_scheduled_post")
     schema = tool.inputSchema
     props = schema.get("properties", {})
-    assert "mediaFile" in props, "mediaFile must be in the input schema"
-    mf = props["mediaFile"]
-    # OpenAI requires a direct inline object with string download_url/file_id —
-    # NOT an array, NOT a $ref, NOT a nullable union (else "File arg rewrite
-    # paths are required when proxied mounts are present").
-    assert mf.get("type") == "object", "mediaFile must be a direct object"
-    assert "$ref" not in str(mf), "mediaFile must be inline, not a $ref"
-    assert "anyOf" not in mf, "mediaFile must not be a nullable union"
-    assert mf["properties"]["download_url"]["type"] == "string"
-    assert mf["properties"]["file_id"]["type"] == "string"
-    assert mf["required"] == ["download_url", "file_id"]
+    assert "mediaFiles" in props, "mediaFiles must be in the input schema"
+    mf = props["mediaFiles"]
+    # Matches the proven Java schema: an array of INLINE file objects. The
+    # schema must be inline — NO $ref, NO nullable union — else ChatGPT fails
+    # with "File arg rewrite paths are required when proxied mounts are present".
+    assert mf.get("type") == "array", "mediaFiles must be an array"
+    assert "$ref" not in str(mf), "mediaFiles items must be inline, not a $ref"
+    assert "anyOf" not in mf, "mediaFiles must not be a nullable union"
+    item = mf["items"]
+    assert item["type"] == "object"
+    assert item["properties"]["download_url"]["type"] == "string"
+    assert item["properties"]["file_id"]["type"] == "string"
+    assert item["required"] == ["download_url", "file_id"]
     # Optional: clients (text-only posts) must not be forced to send it.
-    assert "mediaFile" not in schema.get("required", [])
-    assert tool.meta == {"openai/fileParams": ["mediaFile"]}
+    assert "mediaFiles" not in schema.get("required", [])
+    assert tool.meta == {"openai/fileParams": ["mediaFiles"]}
 
 
 def test_other_tools_have_no_filepicker_meta():
@@ -83,7 +85,7 @@ def test_normalize_runs_before_validate(monkeypatch):
     assert result["media"] == ["https://static.metricool.com/normalized.jpg"]
 
 
-def test_chatgpt_mediafile_merged_before_normalize(monkeypatch):
+def test_chatgpt_mediafiles_merged_before_normalize(monkeypatch):
     seen = {}
 
     class FakeClient:
@@ -109,7 +111,7 @@ def test_chatgpt_mediafile_merged_before_normalize(monkeypatch):
         networks=["instagram"],
         text="hi",
         media=["https://existing/a.jpg"],
-        mediaFile={"download_url": "https://chatgpt/b.jpg", "file_id": "f1"},
+        mediaFiles=[{"download_url": "https://chatgpt/b.jpg", "file_id": "f1"}],
     )
     # ChatGPT download_url appended to existing media, then handed to normalize
     assert seen["normalized_input"] == ["https://existing/a.jpg", "https://chatgpt/b.jpg"]
