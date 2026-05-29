@@ -18,46 +18,11 @@ from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
 
 from auth import get_api_key
-from chatgpt_files import extract_download_urls
+from chatgpt_files import coerce_media_items
 from client import MetricoolClient
 from fields_loader import available_connectors_for_network, filter_fields, load_fields
 from media_normalizer import normalize_media_urls
 from validators import validate_post_info
-
-# JSON schema for the ChatGPT file-picker param (OpenAI Apps SDK).
-#
-# This mirrors EXACTLY the schema emitted by the proven-working Java
-# implementation (SchedulerOpenAiFileToolRewriter): a `mediaFiles` ARRAY whose
-# items are INLINE objects with download_url/file_id as plain string props.
-#
-# The critical requirement is that the schema be fully INLINE — no `$ref`/
-# `$defs` indirection and no nullable `anyOf [..., null]` wrapper. OpenAI walks
-# the schema to find download_url to proxy-rewrite; a $ref or null-union hides
-# it and ChatGPT fails with:
-#   "File arg rewrite paths are required when proxied mounts are present".
-# (An array is fine — Java uses one — as long as it's inline.) pydantic emits
-# anyOf[{$ref}, null] for the optional param, so `mediaFiles` is typed loosely
-# (list) and its advertised schema is patched in via _patch_media_file_schema()
-# after tool registration.
-_MEDIA_FILES_SCHEMA = {
-    "type": "array",
-    "description": (
-        "Use this for ANY image or video the user attached in the chat or that "
-        "you (ChatGPT) generated — NOT the `media` field. Each entry's "
-        "download_url is appended to the post's media before scheduling. "
-        "Ignored by non-ChatGPT clients."
-    ),
-    "items": {
-        "type": "object",
-        "properties": {
-            "download_url": {"type": "string"},
-            "file_id": {"type": "string"},
-            "mime_type": {"type": "string"},
-            "file_name": {"type": "string"},
-        },
-        "required": ["download_url", "file_id"],
-    },
-}
 
 logging.basicConfig(
     level=logging.INFO,
@@ -84,11 +49,9 @@ mcp = FastMCP(
         "   c. Call get_analytics_data_by_metrics with those field IDs.\n"
         "3. For scheduling: use get_scheduled_posts to list, create_scheduled_post or "
         "update_scheduled_post to modify. Call get_best_time_to_post_by_network if the "
-        "user doesn't specify a time.\n"
-        "   IMPORTANT — media routing: when the user attaches an image/video in the chat "
-        "or you generate one, pass it via the create_scheduled_post 'mediaFiles' field. "
-        "Never put it in 'media' and never pass a local/sandbox path (e.g. /mnt/data/...). "
-        "Use 'media' ONLY for public http(s) URLs the user explicitly provided.\n\n"
+        "user doesn't specify a time. To attach an image/video the user uploaded or you "
+        "generated, pass it in create_scheduled_post's 'media' field (alongside any "
+        "public URLs).\n\n"
         "ANALYTICS STRATEGY:\n"
         "- For account trends and summaries (followers, reach over time) → connector=evolution.\n"
         "- For individual content performance (best posts, top reels) → connector=posts, reels, "
@@ -416,15 +379,11 @@ Character limits (do NOT split into threads or truncate — report the error):
 - X/Twitter: 280 chars max.
 - Bluesky: 300 chars max.
 
-Media — two SEPARATE inputs, pick the right one:
-- `media`: ONLY public http(s) URLs the user explicitly gave you. NEVER put a
-  local/sandbox path here (e.g. /mnt/data/...), and NEVER a file the user
-  attached in the chat or that you generated.
-- `mediaFiles`: ALWAYS use this for any image/video the user attached in the
-  chat or that you (ChatGPT) generated. Put the attached file here — do NOT
-  route attachments through `media`.
+Media: use the `media` field for everything — public http(s) URLs the user
+provided AND any image/video the user attached in the chat or that you
+generated. ChatGPT resolves attachments into this field automatically.
 
-Media requirements (the asset can come from either `media` or `mediaFiles`):
+Media requirements:
 - Instagram POST/REEL/STORY: requires media. REEL needs video. STORY has no text.
 - Pinterest: requires media + pinterest_board_id, pinterest_pin_title, pinterest_pin_link.
 - YouTube: requires media (video) + youtube_title.
@@ -440,8 +399,11 @@ The date must be in the future. DO NOT modify the user's text — just report an
         idempotentHint=False,
         openWorldHint=True,
     ),
-    # Tells ChatGPT (OpenAI Apps SDK) to render a file picker over `mediaFiles`.
-    meta={"openai/fileParams": ["mediaFiles"]},
+    # Declares `media` as an OpenAI file param so ChatGPT rewrites attached /
+    # generated files (otherwise passed as /mnt/data sandbox paths) into file
+    # objects with a real download_url before calling us. Ignored by Claude and
+    # other non-ChatGPT clients, which keep sending plain public URL strings.
+    meta={"openai/fileParams": ["media"]},
 )
 def create_scheduled_post(
     blog_id: str,
@@ -459,7 +421,6 @@ def create_scheduled_post(
     youtube_title: str = "",
     youtube_made_for_kids: bool = False,
     tiktok_title: str = "",
-    mediaFiles: list | None = None,
 ) -> dict:
     """
     Args:
@@ -468,7 +429,7 @@ def create_scheduled_post(
         timezone: IANA timezone (e.g. "Europe/Madrid"). Use the value from get_brand_settings.
         networks: Social networks to publish to (e.g. ["twitter"] or ["twitter","instagram"]). Accepted: twitter, instagram, facebook, linkedin, bluesky, threads, pinterest, youtube, tiktok, twitch.
         text: Post text content. Required for all networks except Instagram Story.
-        media: ONLY public http(s) media URLs (images/videos) the user explicitly provided. NEVER a local/sandbox path (e.g. /mnt/data/...) or a chat-attached/generated file — use mediaFiles for those. Required (via media or mediaFiles) for Instagram, Pinterest, YouTube, TikTok.
+        media: Images/videos for the post. Accepts public http(s) URLs the user provided and/or files the user attached in the chat or that you generated (ChatGPT resolves attachments here automatically). Required for Instagram, Pinterest, YouTube, TikTok.
         draft: Save as draft instead of scheduling (default false).
         content_type: POST, REEL, or STORY — only used for Instagram and Facebook (default POST).
         first_comment: Optional first comment to add after publishing.
@@ -482,9 +443,9 @@ def create_scheduled_post(
     """
     nets = _resolve_networks(networks)
     logger.info("create_scheduled_post called: date=%s blog_id=%s tz=%s nets=%s", date, blog_id, timezone, nets)
-    # ChatGPT-attached files: fold their download URLs into the media list so
-    # they go through the same normalization path as any other URL.
-    media_list = list(media or []) + extract_download_urls(mediaFiles)
+    # `media` may arrive as plain URL strings (all clients) and/or file objects
+    # (ChatGPT attachments rewritten to {download_url,...}); flatten to URLs.
+    media_list = coerce_media_items(media)
     post_info = _build_post_info(
         nets, text, date, timezone, media_list, draft, content_type, first_comment,
         pinterest_board_id, pinterest_pin_title, pinterest_pin_link,
@@ -498,27 +459,6 @@ def create_scheduled_post(
     result = client.create_scheduled_post(blog_id, post_info)
     logger.info("create_scheduled_post result: %s", result)
     return result
-
-
-def _patch_media_files_schema() -> None:
-    """Replace the auto-generated `mediaFiles` schema with the inline array
-    shape OpenAI's Apps SDK requires (see _MEDIA_FILES_SCHEMA).
-
-    FastMCP/pydantic emits an `anyOf [..., null]` for the optional list param,
-    which ChatGPT can't introspect to find download_url. We overwrite it with
-    the inline array (matching the proven Java implementation).
-    """
-    tool = mcp._tool_manager.get_tool("create_scheduled_post")
-    if tool is None:  # pragma: no cover - defensive
-        return
-    params = tool.parameters
-    params.setdefault("properties", {})["mediaFiles"] = dict(_MEDIA_FILES_SCHEMA)
-    required = params.get("required")
-    if isinstance(required, list) and "mediaFiles" in required:
-        required.remove("mediaFiles")  # optional — never force clients to send it
-
-
-_patch_media_files_schema()
 
 
 @mcp.tool(

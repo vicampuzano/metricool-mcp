@@ -1,8 +1,8 @@
-"""Tests for chatgpt_files (Feature 2 — merge helper)."""
+"""Tests for chatgpt_files.coerce_media_items (mixed media → URLs)."""
 
 from dataclasses import dataclass
 
-from chatgpt_files import extract_download_urls
+from chatgpt_files import coerce_media_items
 
 
 @dataclass
@@ -10,37 +10,53 @@ class FakeFile:
     download_url: str | None = None
 
 
-def test_extract_from_dicts():
-    files = [
+def test_plain_url_strings_pass_through():
+    assert coerce_media_items(["https://x/1.jpg", "https://x/2.jpg"]) == [
+        "https://x/1.jpg",
+        "https://x/2.jpg",
+    ]
+
+
+def test_file_objects_as_dicts():
+    media = [
         {"download_url": "https://x/1.jpg", "file_id": "a"},
         {"download_url": "https://x/2.jpg", "file_id": "b"},
     ]
-    assert extract_download_urls(files) == ["https://x/1.jpg", "https://x/2.jpg"]
+    assert coerce_media_items(media) == ["https://x/1.jpg", "https://x/2.jpg"]
 
 
-def test_extract_from_objects():
-    files = [FakeFile("https://x/1.jpg"), FakeFile("https://x/2.jpg")]
-    assert extract_download_urls(files) == ["https://x/1.jpg", "https://x/2.jpg"]
+def test_file_objects_as_objects():
+    assert coerce_media_items([FakeFile("https://x/1.jpg")]) == ["https://x/1.jpg"]
+
+
+def test_mixed_strings_and_objects_preserve_order():
+    media = [
+        "https://url/a.jpg",
+        {"download_url": "https://chatgpt/b.jpg", "file_id": "f1"},
+        "https://url/c.jpg",
+    ]
+    assert coerce_media_items(media) == [
+        "https://url/a.jpg",
+        "https://chatgpt/b.jpg",
+        "https://url/c.jpg",
+    ]
 
 
 def test_skips_blank_and_missing():
-    files = [
-        {"download_url": "https://x/1.jpg"},
+    media = [
+        "https://x/1.jpg",
+        "",
+        "   ",
         {"download_url": ""},
-        {"download_url": "   "},
-        {"file_id": "no-url"},
         {"download_url": None},
         {"download_url": 123},  # non-string
-        "not-an-object",
+        {"file_id": "no-url"},
+        None,
+        42,
     ]
-    assert extract_download_urls(files) == ["https://x/1.jpg"]
+    assert coerce_media_items(media) == ["https://x/1.jpg"]
 
 
 def test_empty_and_none():
-    assert extract_download_urls([]) == []
-    assert extract_download_urls(None) == []
-
-
-def test_preserves_order():
-    files = [FakeFile("https://x/3.jpg"), FakeFile("https://x/1.jpg"), FakeFile("https://x/2.jpg")]
-    assert extract_download_urls(files) == ["https://x/3.jpg", "https://x/1.jpg", "https://x/2.jpg"]
+    assert coerce_media_items([]) == []
+    assert coerce_media_items(None) == []

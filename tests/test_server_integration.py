@@ -20,26 +20,15 @@ def _get_tool(name):
     raise AssertionError(f"tool {name} not found")
 
 
-def test_create_tool_exposes_mediafiles_and_meta():
+def test_media_declared_as_openai_file_param():
     tool = _get_tool("create_scheduled_post")
-    schema = tool.inputSchema
-    props = schema.get("properties", {})
-    assert "mediaFiles" in props, "mediaFiles must be in the input schema"
-    mf = props["mediaFiles"]
-    # Matches the proven Java schema: an array of INLINE file objects. The
-    # schema must be inline — NO $ref, NO nullable union — else ChatGPT fails
-    # with "File arg rewrite paths are required when proxied mounts are present".
-    assert mf.get("type") == "array", "mediaFiles must be an array"
-    assert "$ref" not in str(mf), "mediaFiles items must be inline, not a $ref"
-    assert "anyOf" not in mf, "mediaFiles must not be a nullable union"
-    item = mf["items"]
-    assert item["type"] == "object"
-    assert item["properties"]["download_url"]["type"] == "string"
-    assert item["properties"]["file_id"]["type"] == "string"
-    assert item["required"] == ["download_url", "file_id"]
-    # Optional: clients (text-only posts) must not be forced to send it.
-    assert "mediaFiles" not in schema.get("required", [])
-    assert tool.meta == {"openai/fileParams": ["mediaFiles"]}
+    # `media` is declared as the OpenAI file param so ChatGPT rewrites attached
+    # files into objects with a download_url before calling us. This lives in
+    # _meta, which Claude/other clients ignore.
+    assert tool.meta == {"openai/fileParams": ["media"]}
+    assert "media" in tool.inputSchema.get("properties", {})
+    # No leftover mediaFiles field from earlier iterations.
+    assert "mediaFiles" not in tool.inputSchema.get("properties", {})
 
 
 def test_other_tools_have_no_filepicker_meta():
@@ -85,7 +74,7 @@ def test_normalize_runs_before_validate(monkeypatch):
     assert result["media"] == ["https://static.metricool.com/normalized.jpg"]
 
 
-def test_chatgpt_mediafiles_merged_before_normalize(monkeypatch):
+def test_media_mixes_urls_and_chatgpt_file_objects(monkeypatch):
     seen = {}
 
     class FakeClient:
@@ -110,8 +99,11 @@ def test_chatgpt_mediafiles_merged_before_normalize(monkeypatch):
         timezone="Europe/Madrid",
         networks=["instagram"],
         text="hi",
-        media=["https://existing/a.jpg"],
-        mediaFiles=[{"download_url": "https://chatgpt/b.jpg", "file_id": "f1"}],
+        # A plain URL (Claude/normal flow) + a ChatGPT-rewritten file object.
+        media=[
+            "https://existing/a.jpg",
+            {"download_url": "https://chatgpt/b.jpg", "file_id": "f1"},
+        ],
     )
-    # ChatGPT download_url appended to existing media, then handed to normalize
+    # Both flattened to URLs, in order, before normalization.
     assert seen["normalized_input"] == ["https://existing/a.jpg", "https://chatgpt/b.jpg"]
