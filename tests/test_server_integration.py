@@ -20,23 +20,22 @@ def _get_tool(name):
     raise AssertionError(f"tool {name} not found")
 
 
-def test_mediafile_is_single_object_file_param():
+def test_media_is_object_array_file_param():
     tool = _get_tool("create_scheduled_post")
-    # openai/fileParams only supports a single top-level OBJECT field (not
-    # arrays). mediaFile is that object; lives in _meta, ignored by Claude.
-    assert tool.meta == {"openai/fileParams": ["mediaFile"]}
-    props = tool.inputSchema.get("properties", {})
-    mf = props["mediaFile"]
-    assert mf["type"] == "object", "mediaFile must be a single object, not an array"
-    # Inline — no $ref, no null union — so OpenAI can find download_url.
-    assert "$ref" not in str(mf)
-    assert "anyOf" not in mf
-    assert mf["properties"]["download_url"]["type"] == "string"
-    assert mf["required"] == ["download_url", "file_id"]
-    assert "mediaFile" not in tool.inputSchema.get("required", [])
-    # `media` stays a plain string-URL array — untouched for Claude (no file
-    # object leaked into it).
-    assert "download_url" not in str(props["media"])
+    # `media` is the OpenAI file param, shaped like Java's mediaFiles: an array
+    # of CLEAN inline file objects (no anyOf/string union, no $ref) so ChatGPT
+    # can find download_url to rewrite attached files.
+    assert tool.meta == {"openai/fileParams": ["media"]}
+    media = tool.inputSchema["properties"]["media"]
+    assert media["type"] == "array"
+    item = media["items"]
+    assert item["type"] == "object"
+    assert "anyOf" not in str(item) and "$ref" not in str(item)
+    assert item["properties"]["download_url"]["type"] == "string"
+    # Only download_url required so non-ChatGPT clients can pass a bare URL obj.
+    assert item["required"] == ["download_url"]
+    assert "media" not in tool.inputSchema.get("required", [])
+    assert "mediaFile" not in tool.inputSchema["properties"]
 
 
 def test_other_tools_have_no_filepicker_meta():
