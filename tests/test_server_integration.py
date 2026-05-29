@@ -26,9 +26,19 @@ def test_media_declared_as_openai_file_param():
     # files into objects with a download_url before calling us. This lives in
     # _meta, which Claude/other clients ignore.
     assert tool.meta == {"openai/fileParams": ["media"]}
-    assert "media" in tool.inputSchema.get("properties", {})
-    # No leftover mediaFiles field from earlier iterations.
-    assert "mediaFiles" not in tool.inputSchema.get("properties", {})
+    props = tool.inputSchema.get("properties", {})
+    assert "mediaFiles" not in props  # no leftover field from earlier iterations
+    media = props["media"]
+    assert media["type"] == "array"
+    # items accept a plain URL string OR an inline file object (download_url is
+    # the rewrite path ChatGPT needs). Must be inline — no $ref, no null union.
+    branches = media["items"]["anyOf"]
+    assert {"type": "string"} in branches
+    obj = next(b for b in branches if b.get("type") == "object")
+    assert obj["properties"]["download_url"]["type"] == "string"
+    assert obj["required"] == ["download_url", "file_id"]
+    assert "$ref" not in str(media)
+    assert "null" not in str(media)
 
 
 def test_other_tools_have_no_filepicker_meta():

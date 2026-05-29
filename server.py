@@ -439,7 +439,6 @@ def create_scheduled_post(
         youtube_title: Video title (required when youtube in networks).
         youtube_made_for_kids: Whether the video is made for kids (required when youtube in networks).
         tiktok_title: Video title (required when tiktok in networks).
-        mediaFiles: Use for ANY image/video the user attached in the chat or that you generated (NOT media). Each entry's download_url is appended to the post's media before scheduling. Ignored by non-ChatGPT clients.
     """
     nets = _resolve_networks(networks)
     logger.info("create_scheduled_post called: date=%s blog_id=%s tz=%s nets=%s", date, blog_id, timezone, nets)
@@ -459,6 +458,59 @@ def create_scheduled_post(
     result = client.create_scheduled_post(blog_id, post_info)
     logger.info("create_scheduled_post result: %s", result)
     return result
+
+
+# Inline file-object shape OpenAI rewrites an attached/generated file into.
+# `media` items are declared as anyOf[string, this] so:
+#   - Claude / other clients keep sending plain URL strings (string branch),
+#   - ChatGPT (which sees `media` in openai/fileParams) has an object branch with
+#     download_url as the "rewrite path" where its file-resolution tool injects
+#     the public URL — without it ChatGPT fails with "File arg rewrite paths are
+#     required when proxied mounts are present".
+# Must be INLINE (no $ref / no null union) for OpenAI to discover download_url.
+_MEDIA_FILE_ITEM_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "download_url": {"type": "string"},
+        "file_id": {"type": "string"},
+        "mime_type": {"type": "string"},
+        "file_name": {"type": "string"},
+    },
+    "required": ["download_url", "file_id"],
+}
+
+
+def _patch_media_schema() -> None:
+    """Make `media` items accept a URL string OR a ChatGPT file object.
+
+    pydantic emits `media` as anyOf[{array of string}, null]; we overwrite it
+    with a clean array whose items are anyOf[string, file-object]. Optional
+    (kept out of `required`).
+    """
+    tool = mcp._tool_manager.get_tool("create_scheduled_post")
+    if tool is None:  # pragma: no cover - defensive
+        return
+    params = tool.parameters
+    params.setdefault("properties", {})["media"] = {
+        "type": "array",
+        "description": (
+            "Images/videos for the post. Each item is either a public http(s) "
+            "URL the user provided, or a file the user attached in the chat / "
+            "you generated (ChatGPT resolves attachments to a file object here)."
+        ),
+        "items": {
+            "anyOf": [
+                {"type": "string"},
+                dict(_MEDIA_FILE_ITEM_SCHEMA),
+            ]
+        },
+    }
+    required = params.get("required")
+    if isinstance(required, list) and "media" in required:
+        required.remove("media")
+
+
+_patch_media_schema()
 
 
 @mcp.tool(
