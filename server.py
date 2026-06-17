@@ -49,9 +49,10 @@ mcp = FastMCP(
         "   c. Call get_analytics_data_by_metrics with those field IDs.\n"
         "3. For scheduling: use get_scheduled_posts to list, create_scheduled_post or "
         "update_scheduled_post to modify. Call get_best_time_to_post_by_network if the "
-        "user doesn't specify a time. Put images/videos in 'media' — a public URL as "
-        "{\"download_url\": \"https://...\"}, or a file the user attached in the chat / "
-        "you generated (ChatGPT fills the object automatically).\n\n"
+        "user doesn't specify a time. Put images/videos in 'media_files' — a public URL "
+        "as {\"download_url\": \"https://...\"}, or a file the user attached in the chat / "
+        "you generated (ChatGPT fills the object automatically). Never pass a local file "
+        "path such as /mnt/data/...; attach the file so it uploads instead.\n\n"
         "ANALYTICS STRATEGY:\n"
         "- For account trends and summaries (followers, reach over time) → connector=evolution.\n"
         "- For individual content performance (best posts, top reels) → connector=posts, reels, "
@@ -379,17 +380,19 @@ Character limits (do NOT split into threads or truncate — report the error):
 - X/Twitter: 280 chars max.
 - Bluesky: 300 chars max.
 
-Media goes in `media`, a list of file objects. For a public URL pass
-{"download_url": "https://..."}. For a file the user attached in the chat or
-that you (ChatGPT) generated, ChatGPT fills the object automatically — just put
-it in `media`. (One image per post is recommended.)
+All media (images/videos) goes in `media_files`, a list of file objects. For a
+public URL pass {"download_url": "https://..."}. For a file the user attached in
+the chat or that you (ChatGPT) generated, ChatGPT fills the object automatically
+— always put it in `media_files`, never anywhere else. Do NOT pass a local file
+path (e.g. /mnt/data/...): attach the file so it uploads instead. (One image per
+post is recommended.)
 
 Media requirements:
-- Instagram POST/REEL/STORY: requires media. REEL needs video. STORY has no text.
-- Pinterest: requires media + pinterest_board_id, pinterest_pin_title, pinterest_pin_link.
-- YouTube: requires media (video) + youtube_title.
-- TikTok: requires media + tiktok_title.
-- Facebook REEL: requires video. Facebook STORY: requires media.
+- Instagram POST/REEL/STORY: requires media_files. REEL needs video. STORY has no text.
+- Pinterest: requires media_files + pinterest_board_id, pinterest_pin_title, pinterest_pin_link.
+- YouTube: requires media_files (video) + youtube_title.
+- TikTok: requires media_files + tiktok_title.
+- Facebook REEL: requires video. Facebook STORY: requires media_files.
 
 content_type applies to Instagram and Facebook only: POST (default), REEL, or STORY.
 The date must be in the future. DO NOT modify the user's text — just report any error.""",
@@ -400,11 +403,15 @@ The date must be in the future. DO NOT modify the user's text — just report an
         idempotentHint=False,
         openWorldHint=True,
     ),
-    # `media` is the OpenAI file param (shaped like Java's mediaFiles: array of
-    # file objects). ChatGPT uploads an attached/dropped file and rewrites the
-    # entry into {download_url,...} before calling us. Non-ChatGPT clients ignore
-    # _meta and pass {"download_url": url} (or a plain URL string, tolerated).
-    meta={"openai/fileParams": ["media"]},
+    # `media_files` is the OpenAI file param. It mirrors the proven Java tool's
+    # `mediaFiles` field: the ONLY top-level media-shaped param, an array of file
+    # objects. There is deliberately NO flat `media` string param — that is what
+    # made ChatGPT dump raw `/mnt/data/...` sandbox paths instead of uploading the
+    # file (see git history + the Jun-2026 log analysis). ChatGPT uploads an
+    # attached/dropped file and rewrites the entry into {download_url,...} before
+    # calling us. Non-ChatGPT clients ignore _meta and pass {"download_url": url}
+    # (or a plain URL string, tolerated by coerce_media_items).
+    meta={"openai/fileParams": ["media_files"]},
 )
 def create_scheduled_post(
     blog_id: str,
@@ -412,7 +419,7 @@ def create_scheduled_post(
     timezone: str,
     networks: list[str],
     text: str = "",
-    media: list[str] | None = None,
+    media_files: list | None = None,
     draft: bool = False,
     content_type: str = "POST",
     first_comment: str = "",
@@ -430,7 +437,7 @@ def create_scheduled_post(
         timezone: IANA timezone (e.g. "Europe/Madrid"). Use the value from get_brand_settings.
         networks: Social networks to publish to (e.g. ["twitter"] or ["twitter","instagram"]). Accepted: twitter, instagram, facebook, linkedin, bluesky, threads, pinterest, youtube, tiktok, twitch.
         text: Post text content. Required for all networks except Instagram Story.
-        media: List of media file objects for the post. For a public URL, pass {"download_url": "https://..."}. For a file the user attached in the chat or that you generated, ChatGPT fills the object automatically. A plain URL string is also accepted. Required for Instagram, Pinterest, YouTube, TikTok.
+        media_files: List of media file objects for the post. For a public URL, pass {"download_url": "https://..."}. For a file the user attached in the chat or that you generated, ChatGPT fills the object automatically — always route it here, never as a local path. A plain URL string is also accepted. Required for Instagram, Pinterest, YouTube, TikTok.
         draft: Save as draft instead of scheduling (default false).
         content_type: POST, REEL, or STORY — only used for Instagram and Facebook (default POST).
         first_comment: Optional first comment to add after publishing.
@@ -443,11 +450,13 @@ def create_scheduled_post(
     """
     nets = _resolve_networks(networks)
     logger.info("create_scheduled_post called: date=%s blog_id=%s tz=%s nets=%s", date, blog_id, timezone, nets)
-    # TEMP diagnostic: log the raw media argument shape clients send.
-    logger.info("create_scheduled_post raw media=%r", media)
-    # `media` items may be file objects {download_url,...} (ChatGPT-rewritten
+    # TEMP diagnostic: log the raw media argument shape clients send. Keep until
+    # the ChatGPT drag-and-drop rewrite (media_files -> download_url) is confirmed
+    # working end-to-end; this is how we'll see whether paths still leak through.
+    logger.info("create_scheduled_post raw media_files=%r", media_files)
+    # `media_files` items may be file objects {download_url,...} (ChatGPT-rewritten
     # attachments or Claude URLs) and/or plain URL strings; flatten to URLs.
-    media_list = coerce_media_items(media)
+    media_list = coerce_media_items(media_files)
     logger.info("create_scheduled_post coerced media URLs: %r", media_list)
     post_info = _build_post_info(
         nets, text, date, timezone, media_list, draft, content_type, first_comment,
@@ -470,15 +479,17 @@ def create_scheduled_post(
     return result
 
 
-# `media` schema, shaped EXACTLY like the proven Java implementation's
+# `media_files` schema, shaped EXACTLY like the proven Java implementation's
 # `mediaFiles` field: an array whose items are INLINE file objects
-# {download_url, file_id, mime_type, file_name}. `media` is declared as the
+# {download_url, file_id, mime_type, file_name}. `media_files` is declared as the
 # OpenAI file param so ChatGPT, when the user drops/attaches a file, uploads it
 # to its store and rewrites the entry into such an object before calling us.
 #
 # Why this shape:
-#   - The model always puts the post image into `media` (never a separate
-#     field), so `media` itself must be the file param.
+#   - There is NO flat `media` string param competing with this field. With one
+#     in place, ChatGPT routed dropped files' raw `/mnt/data/...` sandbox paths
+#     into it as strings (never uploading). Java avoids this by having media live
+#     only inside its `info`/`mediaFiles` shape — we mirror that here.
 #   - Items must be CLEAN inline objects (no anyOf-with-string, no $ref, no
 #     null) — that's what lets ChatGPT find download_url to rewrite. An anyOf
 #     union or a plain-string array makes it abort with "File arg rewrite paths
@@ -499,8 +510,8 @@ _MEDIA_ITEM_SCHEMA = {
 
 
 def _patch_media_schema() -> None:
-    """Overwrite the auto-generated `media` schema with an array of inline file
-    objects (the Java-proven fileParam shape). pydantic emits
+    """Overwrite the auto-generated `media_files` schema with an array of inline
+    file objects (the Java-proven fileParam shape). pydantic emits
     anyOf[{array of string}, null], which gives ChatGPT no download_url to
     rewrite. Kept optional.
     """
@@ -508,19 +519,19 @@ def _patch_media_schema() -> None:
     if tool is None:  # pragma: no cover - defensive
         return
     params = tool.parameters
-    params.setdefault("properties", {})["media"] = {
+    params.setdefault("properties", {})["media_files"] = {
         "type": "array",
         "description": (
             "Images/videos for the post. Each item is a file object: for a "
             "public URL pass {\"download_url\": \"https://...\"}; for a file the "
             "user attached in the chat or you (ChatGPT) generated, ChatGPT fills "
-            "the object automatically."
+            "the object automatically. Never pass a local file path."
         ),
         "items": dict(_MEDIA_ITEM_SCHEMA),
     }
     required = params.get("required")
-    if isinstance(required, list) and "media" in required:
-        required.remove("media")
+    if isinstance(required, list) and "media_files" in required:
+        required.remove("media_files")
 
 
 _patch_media_schema()

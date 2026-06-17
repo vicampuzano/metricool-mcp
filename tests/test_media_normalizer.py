@@ -111,3 +111,133 @@ def test_normalized_hosts_env_override(monkeypatch):
     assert normalized_hosts() == {"a.example.com", "b.example.com"}
     monkeypatch.delenv("METRICOOL_NORMALIZED_HOSTS")
     assert normalized_hosts() == set(DEFAULT_NORMALIZED_HOSTS)
+
+
+# ---------------------------------------------------------------------------
+# Local/sandbox path rejection (ChatGPT /mnt/data, Windows paths, etc.)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/mnt/data/ghostwriter_images/generated/poster_1.png",
+        "/mnt/data/June 23 Stories Frame 1.png",
+        "/Users/someone/Pictures/photo.png",
+        "/tmp/output.jpg",
+        r"C:\Users\tdmv\Documents\image.png",
+        "C:/Users/tdmv/image.png",
+        r"\\server\share\image.png",
+        "./relative/image.png",
+        "../up/image.png",
+        "~/Pictures/image.png",
+        "file:///mnt/data/x.png",
+    ],
+)
+def test_local_path_rejected_without_backend_call(path):
+    client = FakeClient()
+    with pytest.raises(MediaNormalizationError) as exc:
+        normalize_media_urls([path], client, TRUSTED)
+    assert client.calls == []  # short-circuited, no wasted round-trip
+    assert exc.value.url == path
+    msg = str(exc.value)
+    assert "local machine" in msg
+    assert "download_url" in msg  # tells the model how to recover
+
+
+def test_protocol_relative_url_is_not_treated_as_local():
+    # // is a protocol-relative URL, not an absolute path -> still hits backend.
+    client = FakeClient(response="https://static.metricool.com/ok.jpg")
+    out = normalize_media_urls(["//cdn.example.com/x.jpg"], client, TRUSTED)
+    assert client.calls == ["//cdn.example.com/x.jpg"]
+    assert out == ["https://static.metricool.com/ok.jpg"]
+
+
+# ---------------------------------------------------------------------------
+# Category-aware messages
+# ---------------------------------------------------------------------------
+
+
+def test_ephemeral_link_message_mentions_expiry():
+    url = "https://sdmntprnorthcentralus.oaiusercontent.com/files/abc/raw?se=2026"
+    client = FakeClient(response="")  # blank body -> failure
+    with pytest.raises(MediaNormalizationError) as exc:
+        normalize_media_urls([url], client, TRUSTED)
+    assert "expired" in str(exc.value).lower()
+
+
+def test_drive_message_unchanged():
+    url = "https://drive.google.com/file/d/abc/view"
+    client = FakeClient(response="")
+    with pytest.raises(MediaNormalizationError) as exc:
+        normalize_media_urls([url], client, TRUSTED)
+    assert "Google Drive" in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
+# Retry on transient backend failures
+# ---------------------------------------------------------------------------
+
+
+class SequenceClient:
+    """Raises/returns a scripted sequence across successive calls."""
+
+    def __init__(self, outcomes):
+        self.outcomes = list(outcomes)
+        self.calls = []
+
+    def normalize_image_url(self, url):
+        self.calls.append(url)
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+
+class ReadTimeout(Exception):
+    """Mirrors requests.exceptions.ReadTimeout (matched by class name)."""
+
+
+class _FakeHTTPError(Exception):
+    def __init__(self, status):
+        super().__init__(f"HTTP {status}")
+        self.response = type("R", (), {"status_code": status})()
+
+
+def test_transient_timeout_is_retried_then_succeeds():
+    client = SequenceClient([ReadTimeout("timed out"),
+                             "https://static.metricool.com/ok.jpg"])
+    out = normalize_media_urls(["https://x.example.com/a.jpg"], client, TRUSTED)
+    assert out == ["https://static.metricool.com/ok.jpg"]
+    assert len(client.calls) == 2  # retried once
+
+
+def test_transient_5xx_is_retried():
+    client = SequenceClient([_FakeHTTPError(503),
+                             "https://static.metricool.com/ok.jpg"])
+    out = normalize_media_urls(["https://x.example.com/a.jpg"], client, TRUSTED)
+    assert out == ["https://static.metricool.com/ok.jpg"]
+    assert len(client.calls) == 2
+
+
+def test_transient_failure_twice_gives_up():
+    client = SequenceClient([ReadTimeout("t1"), ReadTimeout("t2")])
+    with pytest.raises(MediaNormalizationError):
+        normalize_media_urls(["https://x.example.com/a.jpg"], client, TRUSTED)
+    assert len(client.calls) == 2  # initial + one retry, no more
+
+
+def test_non_transient_error_is_not_retried():
+    client = SequenceClient([RuntimeError("boom"),
+                             "https://static.metricool.com/ok.jpg"])
+    with pytest.raises(MediaNormalizationError):
+        normalize_media_urls(["https://x.example.com/a.jpg"], client, TRUSTED)
+    assert len(client.calls) == 1  # 4xx/other -> no retry
+
+
+def test_4xx_http_error_is_not_retried():
+    client = SequenceClient([_FakeHTTPError(400),
+                             "https://static.metricool.com/ok.jpg"])
+    with pytest.raises(MediaNormalizationError):
+        normalize_media_urls(["https://x.example.com/a.jpg"], client, TRUSTED)
+    assert len(client.calls) == 1

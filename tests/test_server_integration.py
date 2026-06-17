@@ -20,13 +20,13 @@ def _get_tool(name):
     raise AssertionError(f"tool {name} not found")
 
 
-def test_media_is_object_array_file_param():
+def test_media_files_is_object_array_file_param():
     tool = _get_tool("create_scheduled_post")
-    # `media` is the OpenAI file param, shaped like Java's mediaFiles: an array
-    # of CLEAN inline file objects (no anyOf/string union, no $ref) so ChatGPT
-    # can find download_url to rewrite attached files.
-    assert tool.meta == {"openai/fileParams": ["media"]}
-    media = tool.inputSchema["properties"]["media"]
+    # `media_files` is the OpenAI file param, shaped like Java's mediaFiles: an
+    # array of CLEAN inline file objects (no anyOf/string union, no $ref) so
+    # ChatGPT can find download_url to rewrite attached files.
+    assert tool.meta == {"openai/fileParams": ["media_files"]}
+    media = tool.inputSchema["properties"]["media_files"]
     assert media["type"] == "array"
     item = media["items"]
     assert item["type"] == "object"
@@ -34,8 +34,10 @@ def test_media_is_object_array_file_param():
     assert item["properties"]["download_url"]["type"] == "string"
     # Only download_url required so non-ChatGPT clients can pass a bare URL obj.
     assert item["required"] == ["download_url"]
-    assert "media" not in tool.inputSchema.get("required", [])
-    assert "mediaFile" not in tool.inputSchema["properties"]
+    assert "media_files" not in tool.inputSchema.get("required", [])
+    # No competing flat `media` string param — that is what made ChatGPT dump
+    # raw /mnt/data sandbox paths instead of uploading the file.
+    assert "media" not in tool.inputSchema["properties"]
 
 
 def test_other_tools_have_no_filepicker_meta():
@@ -75,7 +77,7 @@ def test_normalize_runs_before_validate(monkeypatch):
         timezone="Europe/Madrid",
         networks=["instagram"],
         text="hi",
-        media=["https://drive.google.com/x"],
+        media_files=["https://drive.google.com/x"],
     )
     assert order == ["normalize", "validate", "send"]
     assert result["media"] == ["https://static.metricool.com/normalized.jpg"]
@@ -107,7 +109,7 @@ def test_media_mixes_urls_and_chatgpt_file_objects(monkeypatch):
         networks=["instagram"],
         text="hi",
         # A plain URL (Claude/normal flow) + a ChatGPT-rewritten file object.
-        media=[
+        media_files=[
             "https://existing/a.jpg",
             {"download_url": "https://chatgpt/b.jpg", "file_id": "f1"},
         ],
