@@ -20,24 +20,26 @@ def _get_tool(name):
     raise AssertionError(f"tool {name} not found")
 
 
-def test_media_files_is_object_array_file_param():
+def test_media_file_is_single_object_file_param():
     tool = _get_tool("create_scheduled_post")
-    # `media_files` is the OpenAI file param, shaped like Java's mediaFiles: an
-    # array of CLEAN inline file objects (no anyOf/string union, no $ref) so
-    # ChatGPT can find download_url to rewrite attached files.
-    assert tool.meta == {"openai/fileParams": ["media_files"]}
-    media = tool.inputSchema["properties"]["media_files"]
+    # `media_file` is the OpenAI file param: a SINGLE clean inline object (NOT an
+    # array — an array fileParam makes ChatGPT abort before calling us). Public
+    # URLs go through the separate `media` string array, which is NOT a fileParam.
+    assert tool.meta == {"openai/fileParams": ["media_file"]}
+    props = tool.inputSchema["properties"]
+
+    media_file = props["media_file"]
+    assert media_file["type"] == "object"
+    assert "anyOf" not in str(media_file) and "$ref" not in str(media_file)
+    assert media_file["properties"]["download_url"]["type"] == "string"
+    assert media_file["required"] == ["download_url"]
+
+    media = props["media"]
     assert media["type"] == "array"
-    item = media["items"]
-    assert item["type"] == "object"
-    assert "anyOf" not in str(item) and "$ref" not in str(item)
-    assert item["properties"]["download_url"]["type"] == "string"
-    # Only download_url required so non-ChatGPT clients can pass a bare URL obj.
-    assert item["required"] == ["download_url"]
-    assert "media_files" not in tool.inputSchema.get("required", [])
-    # No competing flat `media` string param — that is what made ChatGPT dump
-    # raw /mnt/data sandbox paths instead of uploading the file.
-    assert "media" not in tool.inputSchema["properties"]
+    assert media["items"] == {"type": "string"}
+
+    assert "media" not in tool.inputSchema.get("required", [])
+    assert "media_file" not in tool.inputSchema.get("required", [])
 
 
 def test_other_tools_have_no_filepicker_meta():
@@ -77,13 +79,13 @@ def test_normalize_runs_before_validate(monkeypatch):
         timezone="Europe/Madrid",
         networks=["instagram"],
         text="hi",
-        media_files=["https://drive.google.com/x"],
+        media=["https://drive.google.com/x"],
     )
     assert order == ["normalize", "validate", "send"]
     assert result["media"] == ["https://static.metricool.com/normalized.jpg"]
 
 
-def test_media_mixes_urls_and_chatgpt_file_objects(monkeypatch):
+def test_media_file_and_media_urls_are_combined(monkeypatch):
     seen = {}
 
     class FakeClient:
@@ -108,11 +110,39 @@ def test_media_mixes_urls_and_chatgpt_file_objects(monkeypatch):
         timezone="Europe/Madrid",
         networks=["instagram"],
         text="hi",
-        # A plain URL (Claude/normal flow) + a ChatGPT-rewritten file object.
-        media_files=[
-            "https://existing/a.jpg",
-            {"download_url": "https://chatgpt/b.jpg", "file_id": "f1"},
-        ],
+        # A ChatGPT-rewritten attachment object + a public URL.
+        media_file={"download_url": "https://chatgpt/b.jpg", "file_id": "f1"},
+        media=["https://existing/a.jpg"],
     )
-    # Both flattened to URLs, in order, before normalization.
-    assert seen["normalized_input"] == ["https://existing/a.jpg", "https://chatgpt/b.jpg"]
+    # media_file first, then media URLs — flattened to plain URLs, order preserved.
+    assert seen["normalized_input"] == ["https://chatgpt/b.jpg", "https://existing/a.jpg"]
+
+
+def test_media_file_alone_is_used(monkeypatch):
+    """The common case: a single attached photo, no public URLs."""
+    seen = {}
+
+    class FakeClient:
+        def __init__(self, *a, **k):
+            pass
+
+        def create_scheduled_post(self, blog_id, post_info):
+            return {"ok": True}
+
+    monkeypatch.setattr(server, "get_api_key", lambda: "tok")
+    monkeypatch.setattr(server, "MetricoolClient", FakeClient)
+    monkeypatch.setattr(
+        server, "normalize_media_urls",
+        lambda urls, client, hosts=None: seen.setdefault("in", list(urls)) or list(urls),
+    )
+    monkeypatch.setattr(server, "validate_post_info", lambda pi: None)
+
+    server.create_scheduled_post(
+        blog_id="1",
+        date="2099-01-01T10:00:00",
+        timezone="Europe/Madrid",
+        networks=["instagram"],
+        text="hi",
+        media_file={"download_url": "https://chatgpt/only.jpg", "file_id": "f1"},
+    )
+    assert seen["in"] == ["https://chatgpt/only.jpg"]
