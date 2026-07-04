@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/vicampuzano-metricool-mcp-badge.png)](https://mseep.ai/app/vicampuzano-metricool-mcp)
+
 # Metricool MCP Server
 
 Remote [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server for [Metricool](https://metricool.com), the all-in-one social media management, scheduling, and analytics platform. Connect Claude to your Metricool account to manage social media, plan and schedule posts, analyze performance across all your social networks, and generate social media reports — all through natural conversation.
