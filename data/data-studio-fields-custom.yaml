@@ -1,0 +1,61 @@
+# Custom Data Studio fields that are not generated from diccionario.csv. Created for engagement
+# These fields will be merged with the generated data-studio-fields.yaml at startup.
+# Format:
+# - fieldId: "ABC123"
+#   network: "network_name"
+#   connector: "connector_name"
+#   index: 1
+#   metricName: "metric_name"
+#   metricLabel: "Metric Label"
+#   description: "Description of the metric"
+#   dataAggregation: "SUM"
+
+- {fieldId: FBEV9999, replaces: FBEV08, network: facebook, connector: evolution, index: 8, metricName: Engagement,
+   metricLabel: Facebook Evolution > Page Engagement timeline, description: Engagement
+     of posts. Number of Interactions per 1000 people reached. Use for timelines. For
+     totals use Facebook Evolution > Aggregated Engagement, dataAggregation: AVG}
+- {fieldId: IGEV9999, replaces: IGEV08, network: instagram, connector: evolution, index: 8, metricName: totalEngagement,
+   metricLabel: Instagram Evolution > Engagement timeline, description: 'Engagement
+    of the post. Number of interactions per X people reached, this value being the
+    engagement ratio configured in the brand.', dataAggregation: AVG}
+- {fieldId: IGEV41, replaces: IGEV24, network: instagram, connector: evolution, index: 24, metricName: reelsEngagement,
+   metricLabel: Instagram Evolution > Reels Engagement timeline, description: 'Engagement
+    of the reel. Number of interactions per X people reached, this value being the
+    engagement ratio configured in the brand', dataAggregation: AVG}
+- {fieldId: LIEV9998, replaces: LIEV09, network: linkedin, connector: evolution, index: 9, metricName: postsEngagement,
+  metricLabel: LinkedIn Evolution > Engagement, description: 'Engagement of posts.
+    Number of Interactions per X impressions, this value being the engagement ratio
+    configured in the brand', dataAggregation: AVG}
+- {fieldId: LIPO9999, replaces: LIPO11, network: linkedin, connector: posts, index: 11, metricName: postsEngagement,
+  metricLabel: LinkedIn Posts > Engagement, description: 'Engagement of posts. Number
+    of Interactions per X impressions, this value being the engagement ratio configured
+    in the brand', dataAggregation: AVG}
+- {fieldId: LIEV9997, network: linkedin, connector: evolution, index: 17, metricName: newslettersEngagement,
+  metricLabel: LinkedIn Evolution > Newsletters Engagement, description: 'Engagement
+    of newsletters . Number of Interactions per 1,000 impressions (applies only to
+    company pages)', dataAggregation: AVG}
+- {fieldId: TTEV9998, replaces: TTEV15, network: twitter, connector: evolution, index: 15, metricName: twitterEngagement,
+  metricLabel: Twitter Evolution > Engagement, description: 'Engagement of posts.
+    Number of Interactions per X impressions, this value being the engagement ratio
+    configured in the brand', dataAggregation: AVG}
+- {fieldId: PIEV9998, replaces: PIEV03, network: pinterest, connector: evolution, index: 9998, metricName: engagement,
+  metricLabel: Pinterest Evolution > Engagement in period, description: 'Engagement
+    of posts. Number of Interactions per X impressions, this value being the engagement
+    ratio configured in the brand', dataAggregation: AVG}
+- {fieldId: PIEV17, replaces: PIEV12, network: pinterest, connector: evolution, index: 17, metricName: publishedPinsEngagement,
+  metricLabel: Pinterest Evolution > Published engagement, description: 'Engagement
+    from pins published in the period. Number of  Interactions from published pins
+    per X impressions from published pins, this value being the engagement ratio configured
+    in the brand', dataAggregation: AVG}
+- {fieldId: TKEV9998, replaces: TKEV10, network: tiktok, connector: evolution, index: 9998, metricName: engagement,
+  metricLabel: TikTok Evolution > Engagement, description: 'Engagement of the videos.
+    Interactions / Reach timeline * X, this value being the engagement ratio configured
+    in the brand', dataAggregation: AVG}
+- {fieldId: TKPO9999, replaces: TKPO12, network: tiktok, connector: posts, index: 9999, metricName: engagement,
+  metricLabel: TikTok Videos > Engagement, description: 'The interactions received
+    by each X people reached, this value being the engagement ratio configured in
+    the brand reached (total interactions / total reach * X).', dataAggregation: AVG}
+- {fieldId: THEV9998, replaces: THEV04, network: threads, connector: evolution, index: 9998, metricName: engagement,
+  metricLabel: Threads Evolution > Engagement, description: 'Engagement of the account.
+    Number of interactions per impressions, this value is being calculated with the
+    engagement ratio configured in the brand.', dataAggregation: AVG}

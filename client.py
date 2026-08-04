@@ -15,7 +15,9 @@ Auth header selection (mirrors Java AuthorizationInterceptor):
 
 import logging
 import os
+import threading
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 import requests
@@ -25,6 +27,23 @@ from oauth import is_jwt
 logger = logging.getLogger(__name__)
 
 _BASE_URL = os.environ.get("METRICOOL_BASE_URL", "https://app.metricool.com").rstrip("/")
+
+
+def base_url() -> str:
+    """The Metricool app base URL. Also used to build planner deep links."""
+    return _BASE_URL
+
+
+# Split connect/read timeouts, mirroring the Java RestTemplate settings
+# (metricool.api.connect-timeout / read-timeout). A dead backend now fails in
+# seconds instead of hanging on the single 30s budget the whole call used to share.
+_CONNECT_TIMEOUT = float(os.environ.get("METRICOOL_CONNECT_TIMEOUT", "5"))
+_READ_TIMEOUT = float(os.environ.get("METRICOOL_READ_TIMEOUT", "20"))
+_TIMEOUT = (_CONNECT_TIMEOUT, _READ_TIMEOUT)
+
+# Upper bound on concurrent analytics queries when a call splits into several
+# incompatible field groups.
+_MAX_PARALLEL_QUERIES = 6
 
 
 class TokenInvalidError(Exception):
@@ -94,11 +113,23 @@ class MetricoolClient:
 
     def __init__(self, token: str) -> None:
         self._token = token
-        self._session = requests.Session()
-        if is_jwt(token):
-            self._session.headers.update({"Authorization": f"Bearer {token}"})
-        else:
-            self._session.headers.update({"X-Mc-Auth": token})
+        self._headers = (
+            {"Authorization": f"Bearer {token}"}
+            if is_jwt(token)
+            else {"X-Mc-Auth": token}
+        )
+        # requests.Session is not thread-safe, and media normalization fans a
+        # single call out across a thread pool, so each thread gets its own.
+        self._local = threading.local()
+
+    @property
+    def _session(self) -> requests.Session:
+        session = getattr(self._local, "session", None)
+        if session is None:
+            session = requests.Session()
+            session.headers.update(self._headers)
+            self._local.session = session
+        return session
 
     def _request(
         self,
@@ -112,7 +143,7 @@ class MetricoolClient:
         url = f"{_BASE_URL}{path}"
         logger.debug("%s %s params=%s", method, url, params)
         resp = self._session.request(
-            method, url, params=params, json=body, timeout=30
+            method, url, params=params, json=body, timeout=_TIMEOUT
         )
         if resp.status_code in (401, 403):
             raise TokenInvalidError(resp.status_code, resp.text[:200])
@@ -150,7 +181,7 @@ class MetricoolClient:
         url_ = f"{_BASE_URL}/api/actions/normalize/image/url"
         params = {"url": url, "folder": "PLANNER", "integrationSource": "MCP"}
         logger.debug("GET %s url=%s", url_, url)
-        resp = self._session.get(url_, params=params, timeout=30)
+        resp = self._session.get(url_, params=params, timeout=_TIMEOUT)
         if resp.status_code in (401, 403):
             raise TokenInvalidError(resp.status_code, resp.text[:200])
         resp.raise_for_status()
@@ -200,6 +231,21 @@ class MetricoolClient:
                 "timezone": timezone,
             },
         )
+
+    def get_pinterest_boards(self, brand_id: str) -> list[dict]:
+        """List the Pinterest boards connected to a brand.
+
+        Used to resolve a board name to the numeric board id the API requires.
+        Returns a list of ``{"id": ..., "name": ...}`` dicts (empty on an
+        unexpected response shape).
+        """
+        result = self._get(
+            "/api/v2/scheduler/boards/pinterest", params={"brandId": brand_id}
+        )
+        data = result.get("data", result) if isinstance(result, dict) else result
+        if not isinstance(data, list):
+            return []
+        return [b for b in data if isinstance(b, dict)]
 
     def create_scheduled_post(self, blog_id: str, post_info: dict) -> object:
         body = _build_post_request(post_info)
@@ -255,7 +301,6 @@ class MetricoolClient:
                 group_key = fid[:4].upper()
                 non_ev_grouped[group_key].append(fid)
 
-        all_results: list = []
         api_params_base = {
             "start": from_dt.strftime(_ANALYTICS_DATE_FMT),
             "end": to_dt.strftime(_ANALYTICS_DATE_FMT),
@@ -263,34 +308,39 @@ class MetricoolClient:
             "userToken": self._token,
         }
 
-        # EV fields: single call, add evdate dimension
+        # Build the query list: EV fields go in one call (with the evdate
+        # dimension appended), each non-EV group gets its own.
+        queries: list[tuple[str, list[str]]] = []
         if ev_fields:
-            ordered = ev_fields + ["evdate"]
-            fields_str = ",".join(ordered)
+            queries.append(("evolution", ev_fields + ["evdate"]))
+        queries.extend(non_ev_grouped.items())
+
+        if not queries:
+            return []
+
+        def run(query: tuple[str, list[str]]) -> dict | None:
+            group_key, ids = query
             rows = self._get(
                 "/api/datastudio/datasets",
-                params={**api_params_base, "fields": fields_str},
+                params={**api_params_base, "fields": ",".join(ids)},
             )
-            if rows:
-                all_results.append({
-                    "group": "evolution",
-                    "data": _rows_to_objects(rows, ordered),
-                })
+            if not rows:
+                return None
+            return {"group": group_key, "data": _rows_to_objects(rows, ids)}
 
-        # Non-EV fields: one call per 4-char group
-        for group_key, ids in non_ev_grouped.items():
-            fields_str = ",".join(ids)
-            rows = self._get(
-                "/api/datastudio/datasets",
-                params={**api_params_base, "fields": fields_str},
-            )
-            if rows:
-                all_results.append({
-                    "group": group_key,
-                    "data": _rows_to_objects(rows, ids),
-                })
+        if len(queries) == 1:
+            results = [run(queries[0])]
+        else:
+            # Independent backend calls — run them concurrently so the total wait
+            # is the slowest query, not their sum (Java ES5MPTM3-5955). Group
+            # order is preserved; a failure in any query propagates.
+            with ThreadPoolExecutor(
+                max_workers=min(len(queries), _MAX_PARALLEL_QUERIES),
+                thread_name_prefix="analytics",
+            ) as pool:
+                results = list(pool.map(run, queries))
 
-        return all_results
+        return [r for r in results if r]
 
 
 def _resolve_output_keys(field_ids: list[str]) -> list[str]:
@@ -394,12 +444,18 @@ def _build_post_request(
         if key in post_info and post_info[key] is not None:
             body[key] = post_info[key]
 
-    # Instagram: rename collaborator field 'username' → 'name' (API expects 'name')
+    # Instagram: collaborators go under 'username'. The backend used to read
+    # 'name', which is why this used to rename the field; it now expects
+    # 'username' (Java ES5MPTM3-6752), so accept either spelling from the LLM
+    # and always emit 'username'.
     if "instagramData" in post_info and post_info["instagramData"] is not None:
         ig = dict(post_info["instagramData"])
         if "collaborators" in ig and ig["collaborators"]:
             ig["collaborators"] = [
-                {"name": c.get("username", c.get("name", "")), "deleted": c.get("deleted", False)}
+                {
+                    "username": c.get("username", c.get("name", "")),
+                    "deleted": c.get("deleted", False),
+                }
                 for c in ig["collaborators"]
                 if c
             ]

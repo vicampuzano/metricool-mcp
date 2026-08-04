@@ -101,8 +101,8 @@
     calculated using Avg reach per reel. Use for totals. For daily engagement use
     Facebook Evolution > Reels Engagement, dataAggregation: SINGLE}
 - {fieldId: FBEV30, network: facebook, connector: evolution, index: 30, metricName: pagePostsImpressions,
-  metricLabel: Facebook Evolution > Page Posts Impressions, description: Number of
-    page posts impressions, dataAggregation: SUM}
+  metricLabel: Facebook Evolution > Page Posts Impressions, description: 'Number of
+    page posts impressions. Valid for metrics until June 15, 2026', dataAggregation: SUM}
 - {fieldId: FBEV31, network: facebook, connector: evolution, index: 31, metricName: pagePostsReactions,
   metricLabel: Facebook Evolution > Page Posts Reactions, description: Number of page
     posts reactions, dataAggregation: SUM}
@@ -149,8 +149,8 @@
   metricLabel: 'Deprecated: Facebook Evolution > Demographics. Page impressions (65+)',
   description: Number of page impressions made by ages 65+, dataAggregation: SUM}
 - {fieldId: FBEV46, network: facebook, connector: evolution, index: 46, metricName: totalClicks,
-  metricLabel: Facebook Evolution > Page Total Clicks, description: Number of page
-    clicks, dataAggregation: SUM}
+  metricLabel: 'Deprecated: Facebook Evolution > Page Total Clicks', description: Number
+    of page clicks, dataAggregation: SUM}
 - {fieldId: FBEV47, network: facebook, connector: evolution, index: 47, metricName: followersAcquired,
   metricLabel: Facebook Evolution > Page Followers Acquired, description: Followers
     acquired., dataAggregation: SUM}
@@ -1528,6 +1528,9 @@
 - {fieldId: IGEV40, network: instagram, connector: evolution, index: 40, metricName: postsShares,
   metricLabel: Instagram Evolution > Posts Shares, description: 'Number of shares
     of the post. ', dataAggregation: SUM}
+- {fieldId: IGEV42, network: instagram, connector: evolution, index: 42, metricName: accountsEngaged,
+  metricLabel: Instagram Evolution > Accounts Engaged, description: Number of unique
+    accounts that interacted with your content., dataAggregation: SUM}
 - {fieldId: IGPO01, network: instagram, connector: posts, index: 1, metricName: timestamp,
   metricLabel: Instagram Posts > Date, description: Date of the publication, dataAggregation: ''}
 - {fieldId: IGPO02, network: instagram, connector: posts, index: 2, metricName: timestamp,
@@ -1606,6 +1609,9 @@
 - {fieldId: IGPO28, network: instagram, connector: posts, index: 28, metricName: views,
   metricLabel: Instagram Posts > Views, description: Number of times that the posts
     have been displayed.(Organic data), dataAggregation: SUM}
+- {fieldId: IGPO29, network: instagram, connector: posts, index: 29, metricName: follows,
+  metricLabel: Instagram Posts > Follows, description: Number of new followers gained
+    from this post., dataAggregation: SUM}
 - {fieldId: IGRE01, network: instagram, connector: reels, index: 1, metricName: timestamp,
   metricLabel: Instagram Reels > Date, description: Date of the publication, dataAggregation: ''}
 - {fieldId: IGRE02, network: instagram, connector: reels, index: 2, metricName: timestamp,
@@ -1798,6 +1804,39 @@
 - {fieldId: IGPR02, network: instagram, connector: promoted reels, index: 2, metricName: value,
   metricLabel: Instagram Promoted Reels > Impressions value, description: Impressions
     value promoted reels, dataAggregation: SUM}
+- {fieldId: IGPF01, network: instagram, connector: PF, index: 1, metricName: publicationId,
+  metricLabel: Instagram Performance > Publication Id, description: Publication Id
+    (postId or reelId), dataAggregation: ''}
+- {fieldId: IGPF02, network: instagram, connector: PF, index: 2, metricName: publicationDate,
+  metricLabel: Instagram Performance > Publication date, description: Date and time
+    of the publication, dataAggregation: ''}
+- {fieldId: IGPF03, network: instagram, connector: PF, index: 3, metricName: subject,
+  metricLabel: Instagram Performance > Subject, description: Publication Type (Post
+    or Reel), dataAggregation: ''}
+- {fieldId: IGPF04, network: instagram, connector: PF, index: 4, metricName: date,
+  metricLabel: Instagram Performance > Date, description: Date of the performance
+    value, dataAggregation: ''}
+- {fieldId: IGPF05, network: instagram, connector: PF, index: 5, metricName: views,
+  metricLabel: Instagram Performance > Views, description: Number of times the publication
+    was watched, dataAggregation: SUM}
+- {fieldId: IGPF06, network: instagram, connector: PF, index: 6, metricName: interactions,
+  metricLabel: Instagram Performance > Interactions, description: Number of times
+    the publication was interacted (likes + comments + saved + shared), dataAggregation: SUM}
+- {fieldId: IGPF07, network: instagram, connector: PF, index: 7, metricName: likes,
+  metricLabel: Instagram Performance > Likes, description: Number of likes received
+    by the publication, dataAggregation: SUM}
+- {fieldId: IGPF08, network: instagram, connector: PF, index: 8, metricName: comments,
+  metricLabel: Instagram Performance > Comments, description: Number of comments received
+    by the publication, dataAggregation: SUM}
+- {fieldId: IGPF09, network: instagram, connector: PF, index: 9, metricName: saved,
+  metricLabel: Instagram Performance > Saved, description: Number of times the publications
+    was saved, dataAggregation: SUM}
+- {fieldId: IGPF10, network: instagram, connector: PF, index: 10, metricName: shares,
+  metricLabel: Instagram Performance > Shares, description: Number of times the publication
+    was shared, dataAggregation: SUM}
+- {fieldId: IGPF11, network: instagram, connector: PF, index: 11, metricName: follows,
+  metricLabel: Instagram Performance > Follows, description: Number of new followers
+    gained from this publication, dataAggregation: SUM}
 - {fieldId: KADE01, network: tiktokAds, connector: ads, index: 1, metricName: date,
   metricLabel: TikTok Ads Ads > Date, description: Date of the ad, dataAggregation: ''}
 - {fieldId: KADE02, network: tiktokAds, connector: ads, index: 2, metricName: campaignId,
@@ -2098,6 +2137,26 @@
 - {fieldId: LIDZ02, network: linkedin, connector: DZ, index: 2, metricName: value,
   metricLabel: Linkedin Demographics > Company Size Followers Value, description: Percentage
     of followers by company size, dataAggregation: SUM}
+- {fieldId: LIPF01, network: linkedin, connector: PF, index: 1, metricName: publicationId,
+  metricLabel: Linkedin Performance > Publication Id, description: '', dataAggregation: ''}
+- {fieldId: LIPF02, network: linkedin, connector: PF, index: 2, metricName: publicationDate,
+  metricLabel: Linkedin Performance > Publication date, description: '', dataAggregation: ''}
+- {fieldId: LIPF03, network: linkedin, connector: PF, index: 3, metricName: subject,
+  metricLabel: Linkedin Performance > Subject, description: '', dataAggregation: ''}
+- {fieldId: LIPF04, network: linkedin, connector: PF, index: 4, metricName: date,
+  metricLabel: Linkedin Performance > Date, description: '', dataAggregation: ''}
+- {fieldId: LIPF05, network: linkedin, connector: PF, index: 5, metricName: views,
+  metricLabel: Linkedin Performance > Views, description: '', dataAggregation: SUM}
+- {fieldId: LIPF06, network: linkedin, connector: PF, index: 6, metricName: likes,
+  metricLabel: Linkedin Performance > Likes, description: '', dataAggregation: SUM}
+- {fieldId: LIPF07, network: linkedin, connector: PF, index: 7, metricName: comments,
+  metricLabel: Linkedin Performance > Comments, description: '', dataAggregation: SUM}
+- {fieldId: LIPF08, network: linkedin, connector: PF, index: 8, metricName: shares,
+  metricLabel: Linkedin Performance > Shares, description: '', dataAggregation: SUM}
+- {fieldId: LIPF09, network: linkedin, connector: PF, index: 9, metricName: clicks,
+  metricLabel: Linkedin Performance > Clicks, description: '', dataAggregation: SUM}
+- {fieldId: LIPF10, network: linkedin, connector: PF, index: 10, metricName: engagement,
+  metricLabel: Linkedin Performance > Engagement, description: '', dataAggregation: AVG}
 - {fieldId: TWEV01, network: twitch, connector: evolution, index: 1, metricName: followers,
   metricLabel: Twitch Evolution > Followers, description: Current number of followers.,
   dataAggregation: LAST}
@@ -2190,8 +2249,8 @@
   metricLabel: Twitch Competitors > Clips, description: Number of clips of the video
     streams, dataAggregation: SUM}
 - {fieldId: TWCO08, network: twitch, connector: competitors, index: 8, metricName: totalViews,
-  metricLabel: Twitch Competitors > Views, description: Number of times the video
-    streams were watched, dataAggregation: SUM}
+  metricLabel: 'Deprecated: Twitch Competitors > Views', description: Discontinued.Number
+    of times the video streams were watched, dataAggregation: SUM}
 - {fieldId: TWCO09, network: twitch, connector: competitors, index: 9, metricName: 'HYPERLINK##HYPERLINK(CONCAT("https://twitch.com/",TWCO04),"Open
     profile")', metricLabel: Twitch Competitors > Profile link, description: '', dataAggregation: ''}
 - {fieldId: TTEV01, network: twitter, connector: evolution, index: 1, metricName: followers,
@@ -2328,6 +2387,16 @@
 - {fieldId: TTTW28, network: twitter, connector: TW, index: 28, metricName: 'HYPERLINK##HYPERLINK(CONCAT("https://twitter.com/a/status/",TTTW04),CONCAT("https://twitter.com/a/status/",TTTW04))',
   metricLabel: Twitter Posts > Tweet url linked, description: Hyperlink to the tweet
     (showing the full url), dataAggregation: ''}
+- {fieldId: TTTW29, network: twitter, connector: TW, index: 29, metricName: metricsV2#total_bookmarks,
+  metricLabel: Twitter Posts > Total Bookmarks, description: 'The total number of
+    times users saved this post to their bookmarks ', dataAggregation: SUM}
+- {fieldId: TTTW30, network: twitter, connector: TW, index: 30, metricName: metricsV2#total_follows,
+  metricLabel: Twitter Posts > Total Follows, description: The total number of new
+    followers attributed to this post — users who followed the author's account after
+    seeing it, dataAggregation: SUM}
+- {fieldId: TTTW31, network: twitter, connector: TW, index: 31, metricName: metricsV2#total_unfollows,
+  metricLabel: Twitter Posts > Total Unfollows, description: 'The total number of
+    users who unfollowed the author''s account after seeing this post ', dataAggregation: SUM}
 - {fieldId: TTCO01, network: twitter, connector: competitors, index: 1, metricName: updated,
   metricLabel: Twitter Competitors > Updated, description: '', dataAggregation: ''}
 - {fieldId: TTCO02, network: twitter, connector: competitors, index: 2, metricName: screenName,
@@ -2369,7 +2438,7 @@
   metricLabel: LinkedIn Newsletters > Title, description: Title of the newsletter
     (applies only to company pages), dataAggregation: ''}
 - {fieldId: LIST04, network: linkedin, connector: stories, index: 4, metricName: comment,
-  metricLabel: LinkedIn Newsletters  > Comment, description: Number of comments received
+  metricLabel: LinkedIn Newsletters > Comment, description: Number of comments received
     by the newsletter (applies only to company pages), dataAggregation: ''}
 - {fieldId: LIST05, network: linkedin, connector: stories, index: 5, metricName: description,
   metricLabel: LinkedIn Newsletters > Description, description: Text of the newsletter
@@ -2387,7 +2456,7 @@
   metricLabel: LinkedIn Newsletters > Clicks, description: Number of clicks on the
     newsletters (applies only to company pages), dataAggregation: SUM}
 - {fieldId: LIST10, network: linkedin, connector: stories, index: 10, metricName: comments,
-  metricLabel: LinkedIn Newsletters  > Comments, description: Number of comments received
+  metricLabel: LinkedIn Newsletters > Comments, description: Number of comments received
     by the newsletters (applies only to company pages), dataAggregation: SUM}
 - {fieldId: LIST11, network: linkedin, connector: stories, index: 11, metricName: engagement,
   metricLabel: LinkedIn Newsletters > Engagement, description: Engagement of newsletters.
@@ -2402,7 +2471,7 @@
   metricLabel: LinkedIn Newsletters > Time Watched, description: Total time that videos
     have been watched. (applies only to company pages), dataAggregation: SUM}
 - {fieldId: LIST15, network: linkedin, connector: stories, index: 15, metricName: timeWatchedForVideoViews,
-  metricLabel: LinkedIn Newsletters  > Time Watched for Video Views, description: Total
+  metricLabel: LinkedIn Newsletters > Time Watched for Video Views, description: Total
     time per view of the videos (applies only to company pages), dataAggregation: SUM}
 - {fieldId: LIST16, network: linkedin, connector: stories, index: 16, metricName: videoViews,
   metricLabel: LinkedIn Newsletters > Video Views, description: Number of times a
@@ -2417,20 +2486,20 @@
   metricLabel: LinkedIn Newsletters > Like Reactions, description: Number of like
     reactions received by post., dataAggregation: SUM}
 - {fieldId: LIST20, network: linkedin, connector: stories, index: 20, metricName: entertainmentReactions,
-  metricLabel: LinkedIn Newsletters> Entertainment reactions, description: Number
+  metricLabel: LinkedIn Newsletters > Entertainment reactions, description: Number
     of entertainment reactions received by post., dataAggregation: SUM}
 - {fieldId: LIST21, network: linkedin, connector: stories, index: 21, metricName: interestReactions,
-  metricLabel: LinkedIn Newsletters> Interest reactions, description: Number of interest
+  metricLabel: LinkedIn Newsletters > Interest reactions, description: Number of interest
     reactions received by post., dataAggregation: SUM}
 - {fieldId: LIST22, network: linkedin, connector: stories, index: 22, metricName: praiseReactions,
   metricLabel: LinkedIn Newsletters > Praise reactions, description: Number of praise
     reactions received by post., dataAggregation: SUM}
 - {fieldId: LIST23, network: linkedin, connector: stories, index: 23, metricName: empathyReactions,
-  metricLabel: LinkedIn Newsletters> Empathy reactions, description: Number of empathy
+  metricLabel: LinkedIn Newsletters > Empathy reactions, description: Number of empathy
     reactions received by post., dataAggregation: SUM}
 - {fieldId: LIST24, network: linkedin, connector: stories, index: 24, metricName: appreciationReactions,
-  metricLabel: LinkedIn Newsletters > Appreciationreactions, description: Number of
-    appreciation reactions received by post., dataAggregation: SUM}
+  metricLabel: LinkedIn Newsletters > Appreciation reactions, description: Number
+    of appreciation reactions received by post., dataAggregation: SUM}
 - {fieldId: FGEV01, network: FG, connector: evolution, index: 1, metricName: members,
   metricLabel: Fb Groups Evolution > Members, description: Current number of group
     members, dataAggregation: LAST}
@@ -3576,6 +3645,41 @@
 - {fieldId: THDC02, network: threads, connector: campaigns, index: 2, metricName: followers,
   metricLabel: Threads Demographic > City Followers, description: Current number of
     followers by city, dataAggregation: SUM}
+- {fieldId: THCO01, network: threads, connector: competitors, index: 1, metricName: id,
+  metricLabel: Threads Competitors > Id, description: Id of the competitor, dataAggregation: ''}
+- {fieldId: THCO02, network: threads, connector: competitors, index: 2, metricName: screenName,
+  metricLabel: Threads Competitors > Screen Name, description: Screen name of the
+    competitor, dataAggregation: ''}
+- {fieldId: THCO03, network: threads, connector: competitors, index: 3, metricName: displayName,
+  metricLabel: Threads Competitors > Display Name, description: Display name of the
+    competitor, dataAggregation: ''}
+- {fieldId: THCO04, network: threads, connector: competitors, index: 4, metricName: updated,
+  metricLabel: Threads Competitors > Updated, description: '', dataAggregation: ''}
+- {fieldId: THCO05, network: threads, connector: competitors, index: 5, metricName: updated,
+  metricLabel: Threads Competitors > Updated, description: '', dataAggregation: ''}
+- {fieldId: THCO06, network: threads, connector: competitors, index: 6, metricName: picture,
+  metricLabel: Threads Competitors > Picture, description: Profile image, dataAggregation: ''}
+- {fieldId: THCO07, network: threads, connector: competitors, index: 7, metricName: followers,
+  metricLabel: Threads Competitors > Followers, description: Cumulative total of followers
+    as reported by Threads on the last day of the selected range, dataAggregation: LAST}
+- {fieldId: THCO08, network: threads, connector: competitors, index: 8, metricName: views,
+  metricLabel: Threads Competitors > Views, description: 7-day rolling total of views
+    as reported by Threads on the last day of the selected range, dataAggregation: LAST}
+- {fieldId: THCO09, network: threads, connector: competitors, index: 9, metricName: likes,
+  metricLabel: Threads Competitors > Likes, description: 7-day rolling total of likes
+    as reported by Threads on the last day of the selected range, dataAggregation: LAST}
+- {fieldId: THCO10, network: threads, connector: competitors, index: 10, metricName: comments,
+  metricLabel: Threads Competitors > Replies, description: 7-day rolling total of
+    replies as reported by Threads on the last day of the selected range, dataAggregation: LAST}
+- {fieldId: THCO11, network: threads, connector: competitors, index: 11, metricName: shares,
+  metricLabel: Threads Competitors > Reposts, description: 7-day rolling total of
+    reposts as reported by Threads on the last day of the selected range, dataAggregation: LAST}
+- {fieldId: THCO12, network: threads, connector: competitors, index: 12, metricName: quotes,
+  metricLabel: Threads Competitors > Quotes, description: 7-day rolling total of quotes
+    as reported by Threads on the last day of the selected range, dataAggregation: LAST}
+- {fieldId: THCO13, network: threads, connector: competitors, index: 13, metricName: favorite,
+  metricLabel: Threads Competitors > Favorite, description: Favorite check competitor,
+  dataAggregation: ''}
 - {fieldId: BKEV01, network: bluesky, connector: evolution, index: 1, metricName: followers,
   metricLabel: Bluesky Evolution > Followers, description: Current number of followers.,
   dataAggregation: LAST}
@@ -3733,3 +3837,43 @@
     Images > Image clicks, description: Image clicks, dataAggregation: SUM}
 - {fieldId: SLIM12, network: SL, connector: IM, index: 12, metricName: ctr, metricLabel: Smartlink
     Images > Image ctr, description: Image ctr, dataAggregation: ''}
+- {fieldId: IGAC01, network: instagram, connector: AC, index: 1, metricName: date,
+  metricLabel: Instagram Account > Date, description: Date associated with the metric
+    value., dataAggregation: ''}
+- {fieldId: IGAC02, network: instagram, connector: AC, index: 2, metricName: mediaProductType,
+  metricLabel: Instagram Account > Media Product Type, description: 'Breakdown dimension
+    that segments metrics by media content type (Ad, Carousel, Post, Story, Reel)',
+  dataAggregation: ''}
+- {fieldId: IGAC03, network: instagram, connector: AC, index: 3, metricName: followerType,
+  metricLabel: Instagram Account > Follower Type, description: 'Breakdown dimension
+    that segments metrics by audience type (Followers, Non-followers, Unknown).',
+  dataAggregation: ''}
+- {fieldId: IGAC04, network: instagram, connector: AC, index: 4, metricName: contactButtonType,
+  metricLabel: Instagram Account > Contact Button Type, description: 'Breakdown dimension
+    that segments metrics by type of contact button on the account (Book Now, Call,
+    Direction, Email, Instant Experience, Text, Undefined).', dataAggregation: ''}
+- {fieldId: IGAC05, network: instagram, connector: AC, index: 5, metricName: views,
+  metricLabel: Instagram Account > Views, description: 'Number of views (usable with
+    Media Product Type, Follower Type).', dataAggregation: SUM}
+- {fieldId: IGAC06, network: instagram, connector: AC, index: 6, metricName: reach,
+  metricLabel: Instagram Account > Reach, description: 'Number of accounts reached
+    (usable with Media Product Type, Follower Type).', dataAggregation: SUM}
+- {fieldId: IGAC07, network: instagram, connector: AC, index: 7, metricName: comments,
+  metricLabel: Instagram Account > Comments, description: Number of comments (usable
+    with Media Product Type)., dataAggregation: SUM}
+- {fieldId: IGAC08, network: instagram, connector: AC, index: 8, metricName: likes,
+  metricLabel: Instagram Account > Likes, description: Number of likes (usable with
+    Media Product Type)., dataAggregation: SUM}
+- {fieldId: IGAC09, network: instagram, connector: AC, index: 9, metricName: saves,
+  metricLabel: Instagram Account > Saves, description: Number of saves (usable with
+    Media Product Type)., dataAggregation: SUM}
+- {fieldId: IGAC10, network: instagram, connector: AC, index: 10, metricName: shares,
+  metricLabel: Instagram Account > Shares, description: Number of shares (usable with
+    Media Product Type)., dataAggregation: SUM}
+- {fieldId: IGAC11, network: instagram, connector: AC, index: 11, metricName: totalInteractions,
+  metricLabel: Instagram Account > Total Interactions, description: 'Total interactions
+    including likes, comments, shares, and saves (usable with Media Product Type).',
+  dataAggregation: SUM}
+- {fieldId: IGAC12, network: instagram, connector: AC, index: 12, metricName: profileLinksTaps,
+  metricLabel: Instagram Account > Profile Link Taps, description: Number of taps
+    on profile links (usable with Contact Button Type)., dataAggregation: SUM}

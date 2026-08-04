@@ -89,17 +89,46 @@ async def oauth_authorization_server_metadata(request: Request) -> JSONResponse:
             "response_types_supported": ["code"],
             "response_modes_supported": ["query", "fragment"],
             "grant_types_supported": ["authorization_code", "refresh_token"],
-            "token_endpoint_auth_methods_supported": ["client_secret_basic", "none"],
+            # client_secret_post is required by clients that cannot send HTTP
+            # Basic credentials at the token endpoint (e.g. Mistral Le Chat),
+            # which otherwise fail the token exchange. Mirrors Java ES5MPTM3-6464.
+            "token_endpoint_auth_methods_supported": [
+                "client_secret_basic",
+                "client_secret_post",
+                "none",
+            ],
             "code_challenge_methods_supported": ["S256", "plain"],
         }
     )
 
 
-# Starlette Route objects — mounted into the main app in server.py
+# Starlette Route objects — mounted into the main app in server.py.
+#
+# Besides the root forms, MCP clients derive the discovery URL from the MCP
+# server URL (https://host/mcp) in two ways, and both must return the same
+# document (Java ES5MPTM3-5817):
+#   - RFC 8414 path-insertion:  /.well-known/<doc>/mcp
+#   - path-suffix (MCP SDKs):   /mcp/.well-known/<doc>
+# The /mcp/.well-known/* forms must also stay public — see the middleware's
+# _PUBLIC_PREFIXES, which exempts them from the Bearer requirement.
+_AS_METADATA_PATHS = [
+    "/.well-known/oauth-authorization-server",
+    "/.well-known/openid-configuration",
+    "/.well-known/oauth-authorization-server/mcp",
+    "/.well-known/openid-configuration/mcp",
+    "/mcp/.well-known/oauth-authorization-server",
+    "/mcp/.well-known/openid-configuration",
+]
+
+_PROTECTED_RESOURCE_PATHS = [
+    "/.well-known/oauth-protected-resource",
+    "/.well-known/oauth-protected-resource/mcp",
+    "/mcp/.well-known/oauth-protected-resource",
+]
+
 OAUTH_ROUTES = [
-    Route("/.well-known/oauth-protected-resource", oauth_protected_resource),
-    Route("/.well-known/oauth-authorization-server", oauth_authorization_server_metadata),
-    Route("/.well-known/openid-configuration", oauth_authorization_server_metadata),
+    *[Route(p, oauth_protected_resource) for p in _PROTECTED_RESOURCE_PATHS],
+    *[Route(p, oauth_authorization_server_metadata) for p in _AS_METADATA_PATHS],
 ]
 
 # ---------------------------------------------------------------------------

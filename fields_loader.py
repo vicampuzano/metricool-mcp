@@ -7,6 +7,13 @@ StaticAvailableDataStudioFieldIdsProvider.
 The YAML file (data/data-studio-fields.yaml) is a list of objects with fields:
   fieldId, network, connector, index, metricName, metricLabel,
   description, dataAggregation
+
+A second file (data/data-studio-fields-custom.yaml) holds hand-maintained fields
+that the generated dictionary gets wrong — mostly engagement metrics whose
+dataAggregation must be AVG rather than SUM. A custom entry may carry a
+``replaces`` key naming the generated fieldId it supersedes; that generated
+entry is then dropped. Both files are merged at load time, matching the Java
+DataStudioFieldDictionaryLoader.
 """
 
 import os
@@ -14,14 +21,34 @@ from functools import lru_cache
 
 import yaml
 
-_YAML_PATH = os.path.join(os.path.dirname(__file__), "data", "data-studio-fields.yaml")
+_DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+_YAML_PATH = os.path.join(_DATA_DIR, "data-studio-fields.yaml")
+_CUSTOM_YAML_PATH = os.path.join(_DATA_DIR, "data-studio-fields-custom.yaml")
+
+
+def _load_yaml_list(path: str) -> list[dict]:
+    """Load a YAML file expected to hold a list of field dicts (missing file → [])."""
+    if not os.path.exists(path):
+        return []
+    with open(path, encoding="utf-8") as f:
+        loaded = yaml.safe_load(f)
+    return loaded if isinstance(loaded, list) else []
 
 
 @lru_cache(maxsize=1)
 def load_fields() -> list[dict]:
-    """Load and cache all Data Studio field definitions from YAML."""
-    with open(_YAML_PATH, encoding="utf-8") as f:
-        return yaml.safe_load(f) or []
+    """Load and cache all Data Studio field definitions, generated + custom.
+
+    Custom entries are appended after the generated ones; any generated field
+    named by a custom entry's ``replaces`` key is dropped first, so the custom
+    definition is the only one exposed for that metric.
+    """
+    custom = _load_yaml_list(_CUSTOM_YAML_PATH)
+    replaced = {f.get("replaces") for f in custom if f.get("replaces")}
+    generated = [
+        f for f in _load_yaml_list(_YAML_PATH) if f.get("fieldId") not in replaced
+    ]
+    return generated + custom
 
 
 def _strip_network_connector_prefix(label: str) -> str:

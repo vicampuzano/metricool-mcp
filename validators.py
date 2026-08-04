@@ -3,6 +3,12 @@ Post validation rules.
 
 Mirrors the Java PostInfoValidator + network-specific ValidationRule classes.
 Raises ValueError with a user-friendly message on failure.
+
+Note on X/Twitter: there is deliberately NO character-limit rule here. The
+maximum length depends on the brand's X subscription (standard accounts are
+capped at 280, X Premium accounts publish long-form posts), so the backend is
+the only authority. Java dropped its TwitterPostInfoValidationRule for the same
+reason (ES5MPTM3-6788). Bluesky's 300-character limit is fixed, so it stays.
 """
 
 
@@ -12,22 +18,26 @@ def validate_post_info(post_info: dict) -> None:
     if not providers:
         raise ValueError("At least one provider is required in 'providers'.")
 
-    text = post_info.get("text", "")
+    text = post_info.get("text") or ""
+    auto_publish = post_info.get("autoPublish", True)
+
     ig_data = post_info.get("instagramData", {}) or {}
     ig_type = (ig_data.get("type") or "POST").upper()
+    fb_data = post_info.get("facebookData", {}) or {}
+    fb_type = (fb_data.get("type") or "POST").upper()
 
-    # Instagram Story has no text requirement
-    if "instagram" in providers and ig_type == "STORY":
-        if text:
-            raise ValueError("Instagram Story cannot have 'text'.")
-    else:
+    ig_story = "instagram" in providers and ig_type == "STORY"
+    fb_story = "facebook" in providers and fb_type == "STORY"
+
+    # Stories carry no caption of their own, so the text is optional when the post
+    # includes one. Whether a text that IS present is acceptable depends on the
+    # other providers and the publishing mode — see _validate_story_text.
+    if not (ig_story or fb_story):
         if not isinstance(text, str) or text.strip() == "":
             raise ValueError("Field 'text' is required.")
 
-    if "twitter" in providers and len(text) > 280:
-        raise ValueError(
-            "Error: The text exceeds the 280-character limit allowed on X. Please edit it."
-        )
+    _validate_story_text("Instagram", ig_story, auto_publish, providers, text)
+    _validate_story_text("Facebook", fb_story, auto_publish, providers, text)
 
     if "bluesky" in providers and len(text) > 300:
         raise ValueError(
@@ -49,13 +59,30 @@ def validate_post_info(post_info: dict) -> None:
         _validate_tiktok(post_info.get("tiktokData") or {}, media)
 
     if "facebook" in providers:
-        fb_data = post_info.get("facebookData", {}) or {}
-        fb_type = (fb_data.get("type") or "POST").upper()
         _validate_facebook(fb_type, media)
 
 
+def _validate_story_text(
+    label: str, is_story: bool, auto_publish: bool, providers: list, text: str
+) -> None:
+    """Reject text on an auto-published Story that is the post's only network.
+
+    A Story published automatically carries no caption, but the text is only
+    rejected when this network is the sole provider: when the Story goes out
+    alongside other networks the text belongs to those, and the Story simply
+    ignores it. In manual mode the user pastes the text themselves, so it is
+    always allowed. Mirrors the web planner's <network>StoryModeAutoSingleNetwork
+    rule and the Java FacebookPostInfoValidationRule/InstagramPostInfoValidationRule.
+    """
+    if is_story and auto_publish and len(providers) == 1 and text.strip():
+        raise ValueError(
+            f"{label} Story published automatically cannot have text "
+            f"when {label} is the only network."
+        )
+
+
 def _validate_instagram(ig_type: str, media: list) -> None:
-    if ig_type == "REEL":
+    if ig_type in ("REEL", "TRIAL_REEL"):
         if not _has_video(media):
             raise ValueError("Instagram Reel requires a video.")
     elif ig_type == "STORY":

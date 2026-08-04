@@ -241,3 +241,64 @@ def test_4xx_http_error_is_not_retried():
     with pytest.raises(MediaNormalizationError):
         normalize_media_urls(["https://x.example.com/a.jpg"], client, TRUSTED)
     assert len(client.calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# Parallel fan-out (2+ items). A single item stays on the calling thread.
+# ---------------------------------------------------------------------------
+
+
+def test_parallel_preserves_input_order():
+    """Results must line up with the input, whatever order the calls finish in."""
+    import time
+
+    delays = {"https://a.example.com/1.jpg": 0.03,
+              "https://b.example.com/2.jpg": 0.01,
+              "https://c.example.com/3.jpg": 0.02}
+
+    def respond(url):
+        time.sleep(delays[url])
+        return f"https://static.metricool.com/{url[-5:]}"
+
+    urls = list(delays)
+    out = normalize_media_urls(urls, FakeClient(response=respond), TRUSTED)
+    assert out == [f"https://static.metricool.com/{u[-5:]}" for u in urls]
+
+
+def test_parallel_runs_concurrently():
+    """Total time should track the slowest call, not the sum of all of them."""
+    import time
+
+    def respond(url):
+        time.sleep(0.05)
+        return "https://static.metricool.com/x.jpg"
+
+    urls = [f"https://x.example.com/{i}.jpg" for i in range(6)]
+    started = time.monotonic()
+    normalize_media_urls(urls, FakeClient(response=respond), TRUSTED)
+    elapsed = time.monotonic() - started
+    assert elapsed < 0.25, f"sequential fallback? took {elapsed:.2f}s for 6x50ms"
+
+
+def test_parallel_failure_propagates():
+    client = FakeClient(raises=RuntimeError("boom"))
+    urls = ["https://a.example.com/1.jpg", "https://b.example.com/2.jpg"]
+    with pytest.raises(MediaNormalizationError):
+        normalize_media_urls(urls, client, TRUSTED)
+
+
+def test_parallel_auth_error_still_propagates_untouched():
+    class TokenInvalidError(Exception):
+        pass
+
+    client = FakeClient(raises=TokenInvalidError("401"))
+    urls = ["https://a.example.com/1.jpg", "https://b.example.com/2.jpg"]
+    with pytest.raises(TokenInvalidError):
+        normalize_media_urls(urls, client, TRUSTED)
+
+
+def test_parallel_skips_trusted_hosts_without_calls():
+    client = FakeClient()
+    urls = ["https://static.metricool.com/a.jpg", "https://static.metricool.com/b.jpg"]
+    assert normalize_media_urls(urls, client, TRUSTED) == urls
+    assert client.calls == []
