@@ -12,6 +12,7 @@ import logging
 import os
 import re
 from typing import Optional
+from urllib.parse import urlencode
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
@@ -19,9 +20,10 @@ from mcp.types import ToolAnnotations
 
 from auth import get_api_key
 from chatgpt_files import coerce_media_items
-from client import MetricoolClient
+from client import MetricoolClient, base_url
 from fields_loader import available_connectors_for_network, filter_fields, load_fields
 from media_normalizer import normalize_media_urls
+from pinterest_boards import resolve_pinterest_board
 from validators import validate_post_info
 
 logging.basicConfig(
@@ -155,6 +157,32 @@ def _clean_network_names(networks_data: dict) -> list[str]:
 # ---------------------------------------------------------------------------
 # Scheduler tools
 # ---------------------------------------------------------------------------
+
+
+def _planner_url(blog_id: str, uuid: str) -> str:
+    """Deep link that opens a post in the Metricool planner calendar."""
+    query = urlencode({"blogId": blog_id, "openWithPostUuid": uuid})
+    return f"{base_url()}/planner/calendar?{query}"
+
+
+def _add_planner_urls(result: object, blog_id: str) -> object:
+    """Add a `plannerUrl` to every post in a create/update response, in place.
+
+    The API wraps the post(s) under a "data" key, which may hold a single object
+    or a list. Mirrors the Java PlannerPostUrlBuilder: only entries carrying a
+    non-blank uuid get a link, everything else is left untouched.
+    """
+    if not isinstance(result, dict):
+        return result
+    data = result.get("data", result)
+    posts = data if isinstance(data, list) else [data]
+    for post in posts:
+        if not isinstance(post, dict):
+            continue
+        uuid = post.get("uuid")
+        if isinstance(uuid, str) and uuid.strip():
+            post["plannerUrl"] = _planner_url(blog_id, uuid)
+    return result
 
 
 def _parse_info(info: str | dict) -> dict:
@@ -346,7 +374,9 @@ def _build_post_info(
     if "instagram" in networks:
         info["instagramData"] = {"type": ct, "showReelOnFeed": True}
     if "facebook" in networks:
-        info["facebookData"] = {"type": ct}
+        # TRIAL_REEL is Instagram-only; a mixed post falls back to POST on Facebook
+        # rather than sending a type Facebook would reject.
+        info["facebookData"] = {"type": "POST" if ct == "TRIAL_REEL" else ct}
     if "linkedin" in networks:
         info["linkedinData"] = {"type": "post", "previewIncluded": True}
     if "pinterest" in networks:
@@ -377,7 +407,13 @@ Simple example — Twitter/X text post:
   blog_id="31927", networks=["twitter"], text="Hello world!", date="2026-04-13T17:00:00", timezone="Europe/Madrid"
 
 Character limits (do NOT split into threads or truncate — report the error):
-- X/Twitter: 280 chars max.
+- X/Twitter: you must NOT split the message into multiple tweets or threads; it
+  has to be scheduled as a single post. Do NOT enforce a character limit
+  yourself, because the maximum length depends on the brand's X subscription:
+  standard accounts are limited to 280 characters, while X Premium accounts can
+  publish long-form posts. Schedule the post and, if the text is too long for
+  that particular brand, this tool returns an error that you must relay to the
+  user without modifying the text.
 - Bluesky: 300 chars max.
 
 Media — there are two ways to attach images/videos:
@@ -391,13 +427,27 @@ You can use either or both; they are combined (media_file first, then media).
 (One image per post is recommended.)
 
 Media requirements:
-- Instagram POST/REEL/STORY: requires media. REEL needs video. STORY has no text.
+- Instagram POST/REEL/TRIAL_REEL/STORY: requires media. REEL and TRIAL_REEL need video.
 - Pinterest: requires media + pinterest_board_id, pinterest_pin_title, pinterest_pin_link.
+  pinterest_board_id accepts the numeric board id or the exact board name (it is
+  resolved automatically); if the name can't be matched the error lists the
+  available boards.
 - YouTube: requires media (video) + youtube_title.
 - TikTok: requires media + tiktok_title.
 - Facebook REEL: requires video. Facebook STORY: requires media.
 
-content_type applies to Instagram and Facebook only: POST (default), REEL, or STORY.
+content_type applies to Instagram and Facebook only: POST (default), REEL, STORY,
+or TRIAL_REEL (Instagram only — a Trial Reel, shown to non-followers first;
+requires a video, same as REEL).
+
+Text on Stories: text is required except for Instagram and Facebook Stories,
+where it is optional. Stories have no caption of their own, so a Story published
+automatically must not carry text when it is the only network of the post; when a
+Story is posted alongside a non-Story network the text belongs to that other
+network and the Story ignores it.
+
+The response includes a `plannerUrl` for each scheduled post. After scheduling,
+ALWAYS SHOW the user this link so they can view or edit the post in Metricool.
 The date must be in the future. DO NOT modify the user's text — just report any error.""",
     annotations=ToolAnnotations(
         title="Create Scheduled Post",
@@ -439,13 +489,13 @@ def create_scheduled_post(
         date: Publication date/time, format YYYY-MM-DDTHH:mm:ss (e.g. 2025-03-15T14:30:00).
         timezone: IANA timezone (e.g. "Europe/Madrid"). Use the value from get_brand_settings.
         networks: Social networks to publish to (e.g. ["twitter"] or ["twitter","instagram"]). Accepted: twitter, instagram, facebook, linkedin, bluesky, threads, pinterest, youtube, tiktok, twitch.
-        text: Post text content. Required for all networks except Instagram Story.
+        text: Post text content. Required for all networks except Instagram and Facebook Stories, where it is optional.
         media: List of public media URL strings (e.g. ["https://..."]). Use for links the user gave you or a carousel of several images. Combined with media_file. At least one of media/media_file is required for Instagram, Pinterest, YouTube, TikTok.
         media_file: A single file object {"download_url": "https://...", "file_id": "..."} for a file the user attached/dropped in the chat or that you (ChatGPT) generated — ChatGPT fills this automatically. Never pass a local path like /mnt/data/...
         draft: Save as draft instead of scheduling (default false).
-        content_type: POST, REEL, or STORY — only used for Instagram and Facebook (default POST).
+        content_type: POST, REEL, STORY or TRIAL_REEL — only used for Instagram and Facebook (default POST). TRIAL_REEL is Instagram-only and requires a video.
         first_comment: Optional first comment to add after publishing.
-        pinterest_board_id: Pinterest board ID (required when pinterest in networks).
+        pinterest_board_id: Pinterest board ID, or the exact board name (resolved to the id automatically). Required when pinterest in networks.
         pinterest_pin_title: Pin title (required when pinterest in networks).
         pinterest_pin_link: Destination URL for the pin (required when pinterest in networks).
         youtube_title: Video title (required when youtube in networks).
@@ -454,11 +504,6 @@ def create_scheduled_post(
     """
     nets = _resolve_networks(networks)
     logger.info("create_scheduled_post called: date=%s blog_id=%s tz=%s nets=%s", date, blog_id, timezone, nets)
-    # TEMP diagnostic: log the raw media argument shapes clients send. Keep until
-    # the ChatGPT drag-and-drop rewrite (media_file -> download_url) is confirmed
-    # working end-to-end; this is how we'll see whether the file arrives as a
-    # rewritten object or whether a /mnt/data path still leaks through.
-    logger.info("create_scheduled_post raw media_file=%r media=%r", media_file, media)
     # Combine the single attached/generated file (media_file) with any public URLs
     # (media), attachment first. Items may be file objects {download_url,...} or
     # plain URL strings; coerce_media_items flattens both to plain URLs.
@@ -468,26 +513,21 @@ def create_scheduled_post(
     if media:
         combined.extend(media)
     media_list = coerce_media_items(combined)
-    logger.info("create_scheduled_post coerced media URLs: %r", media_list)
     post_info = _build_post_info(
         nets, text, date, timezone, media_list, draft, content_type, first_comment,
         pinterest_board_id, pinterest_pin_title, pinterest_pin_link,
         youtube_title, youtube_made_for_kids, tiktok_title,
     )
     client = MetricoolClient(get_api_key())
-    # Normalize media URLs BEFORE validating (so validation runs on the
-    # Metricool-hosted URLs, not the raw Drive/Instagram/YouTube links).
-    try:
-        post_info["media"] = normalize_media_urls(post_info.get("media") or [], client)
-        logger.info("create_scheduled_post normalized media: %r", post_info["media"])
-        validate_post_info(post_info)
-        result = client.create_scheduled_post(blog_id, post_info)
-    except Exception:
-        # TEMP diagnostic: surface which step failed (normalize/validate/api).
-        logger.exception("create_scheduled_post failed")
-        raise
+    # Resolve a Pinterest board *name* to its numeric id, then normalize media
+    # URLs — both BEFORE validating, so validation runs on the resolved board and
+    # the Metricool-hosted URLs rather than the raw Drive/Instagram/YouTube links.
+    resolve_pinterest_board(post_info, blog_id, client)
+    post_info["media"] = normalize_media_urls(post_info.get("media") or [], client)
+    validate_post_info(post_info)
+    result = client.create_scheduled_post(blog_id, post_info)
     logger.info("create_scheduled_post result: %s", result)
-    return result
+    return _add_planner_urls(result, blog_id)
 
 
 # `media_file` schema — a SINGLE inline file OBJECT {download_url, file_id,
@@ -557,7 +597,9 @@ _patch_media_schema()
 Get the post id and uuid from get_scheduled_posts first.
 Ask the user to confirm what will be changed before proceeding.
 Include the full original content in the request, modifying only the fields that change.
-The same media requirements as create_scheduled_post apply.
+The same media, character-limit and Story-text rules as create_scheduled_post apply.
+The response includes a `plannerUrl` for each post. After updating, ALWAYS SHOW the
+user this link so they can view or edit the post in Metricool.
 The date cannot be in the past. Do not retry on error.""",
     annotations=ToolAnnotations(
         title="Update Scheduled Post",
@@ -583,13 +625,15 @@ def update_scheduled_post(
     logger.info("update_scheduled_post called: id=%s uuid=%s blog_id=%s", id, uuid, blog_id)
     post_info = _parse_info(info)
     client = MetricoolClient(get_api_key())
-    # Normalize media URLs BEFORE validating (same order as create).
+    # Resolve the Pinterest board, then normalize media URLs, then validate —
+    # same order as create.
+    resolve_pinterest_board(post_info, blog_id, client)
     post_info["media"] = normalize_media_urls(post_info.get("media") or [], client)
     validate_post_info(post_info)
 
     result = client.update_scheduled_post(id, uuid, blog_id, post_info)
     logger.info("update_scheduled_post result: %s", result)
-    return result
+    return _add_planner_urls(result, blog_id)
 
 
 # ---------------------------------------------------------------------------

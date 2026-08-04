@@ -101,6 +101,15 @@ This server uses **OAuth 2.0 with PKCE** (authorization code flow). No API keys 
 | `GET /.well-known/oauth-authorization-server` | Authorization Server Metadata (RFC 8414) |
 | `GET /.well-known/openid-configuration` | OpenID Connect Discovery |
 
+Clients derive the discovery URL from the MCP server URL (`https://host/mcp`) in
+two further ways, and each document is also served at both of them:
+
+- RFC 8414 path-insertion — `/.well-known/<document>/mcp`
+- path-suffix (MCP SDKs) — `/mcp/.well-known/<document>`
+
+All variants return the same document and require no authentication. The `/mcp`
+segment is matched case-insensitively, so `/MCP` behaves exactly like `/mcp`.
+
 ---
 
 ## Tools
@@ -141,14 +150,18 @@ Pulls analytical data for specified metrics and date range. Returns rows of data
 
 ### create_scheduled_post
 
-Schedules a new post to one or more social networks at a specific date and time. Supports network-specific options (Instagram Reels, YouTube Shorts, TikTok, LinkedIn polls, etc.).
+Schedules a new post to one or more social networks at a specific date and time. Supports network-specific options (Instagram Reels and Trial Reels, Stories, YouTube, TikTok, Pinterest, etc.).
 
 - **Safety:** write operation, not idempotent (calling twice creates two posts)
-- **Parameters:** `date`, `blog_id`, `info` (JSON with post data)
+- **Parameters:** `blog_id`, `date`, `timezone`, `networks`, `text`, `media` (public URL strings), `media_file` (a ChatGPT attachment), plus per-network options
+- **Notes:**
+  - `pinterest_board_id` accepts the numeric board id *or* the exact board name, which is resolved automatically; an unmatched name returns an error listing the available boards.
+  - No character limit is enforced for X/Twitter — the maximum depends on the brand's X subscription, so the backend decides and its error is relayed verbatim. Bluesky's 300-character limit is still checked locally.
+  - The response carries a `plannerUrl` per post, a deep link into the Metricool planner.
 
 ### update_scheduled_post
 
-Updates an existing scheduled post. Requires the full post content with the desired modifications.
+Updates an existing scheduled post. Requires the full post content with the desired modifications. Same media, character-limit, Pinterest and `plannerUrl` behaviour as `create_scheduled_post`.
 
 - **Safety:** write operation, idempotent
 - **Parameters:** `id`, `uuid`, `blog_id`, `info` (JSON with full post data)

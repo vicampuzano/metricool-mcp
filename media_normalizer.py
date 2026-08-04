@@ -32,9 +32,14 @@ This module only depends on the stdlib + a duck-typed client exposing
 import logging
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
+
+# Upper bound on concurrent normalization calls. Posts carry a handful of media
+# items at most, so this caps the fan-out without needing a shared pool.
+_MAX_PARALLEL_NORMALIZATIONS = 8
 
 # Hosts whose assets Metricool can already download directly — never renormalized.
 DEFAULT_NORMALIZED_HOSTS = (
@@ -228,8 +233,34 @@ def normalize_media_urls(urls: list, client, hosts: set[str] | None = None) -> l
 
     Empty/None input is returned as-is (no endpoint calls). The order of the
     list is preserved.
+
+    Each item costs one blocking round-trip to the backend, so a carousel is
+    fanned out across a small thread pool — sequential normalization was the main
+    driver of create/update-post latency (Java ES5MPTM3-5955). A single item
+    stays on the calling thread. If any item fails, that failure propagates and
+    the remaining ones are abandoned, matching the sequential behaviour where a
+    bad item aborted the whole call.
     """
     if not urls:
         return urls
     hosts = hosts if hosts is not None else normalized_hosts()
-    return [normalize_url(u, client, hosts) for u in urls]
+    if len(urls) < 2:
+        return [normalize_url(u, client, hosts) for u in urls]
+
+    with ThreadPoolExecutor(
+        max_workers=min(len(urls), _MAX_PARALLEL_NORMALIZATIONS),
+        thread_name_prefix="media-normalize",
+    ) as pool:
+        futures = [pool.submit(normalize_url, u, client, hosts) for u in urls]
+        try:
+            # Surface the first failure as soon as it happens rather than waiting
+            # on the futures in input order, where a slow leading call would hide
+            # an already-failed later one.
+            for future in as_completed(futures):
+                future.result()
+        except Exception:
+            for pending in futures:
+                pending.cancel()
+            raise
+        # All succeeded: collecting in input order no longer blocks.
+        return [f.result() for f in futures]
