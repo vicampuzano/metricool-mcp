@@ -263,3 +263,68 @@ def test_analytics_without_fields_makes_no_call():
     c, seen = _client_with_stubbed_get({})
     assert c.get_analytics_data("1", [], "2026-01-01", "2026-01-31") == []
     assert seen == []
+
+
+# --- timeouts (regression: 20s read timeout broke media normalization) ---
+
+
+def test_media_normalization_gets_a_longer_read_timeout():
+    """The normalize endpoint waits on a third-party download.
+
+    A 20s read timeout produced 83 ReadTimeouts in 24h of production traffic on
+    this call alone, each costing a retry. It must stay well above the general
+    read timeout used by every other endpoint.
+    """
+    assert client_mod._MEDIA_READ_TIMEOUT >= 40
+    assert client_mod._MEDIA_READ_TIMEOUT > client_mod._READ_TIMEOUT
+
+
+def test_normalize_image_url_uses_the_media_timeout():
+    captured = {}
+
+    class FakeSession:
+        headers = {}
+
+        def get(self, url, params=None, timeout=None):
+            captured["timeout"] = timeout
+
+            class R:
+                status_code = 200
+                text = "https://static.metricool.com/x.jpg"
+
+                def raise_for_status(self):
+                    pass
+
+            return R()
+
+    c = client_mod.MetricoolClient("plain-api-key")
+    c._local.session = FakeSession()
+    c.normalize_image_url("https://drive.google.com/x")
+    assert captured["timeout"] == client_mod._MEDIA_TIMEOUT
+    assert captured["timeout"] != client_mod._TIMEOUT
+
+
+def test_other_calls_keep_the_general_timeout():
+    captured = {}
+
+    class FakeSession:
+        headers = {}
+
+        def request(self, method, url, params=None, json=None, timeout=None):
+            captured["timeout"] = timeout
+
+            class R:
+                status_code = 200
+
+                def raise_for_status(self):
+                    pass
+
+                def json(self):
+                    return {"data": []}
+
+            return R()
+
+    c = client_mod.MetricoolClient("plain-api-key")
+    c._local.session = FakeSession()
+    c.get_brands()
+    assert captured["timeout"] == client_mod._TIMEOUT

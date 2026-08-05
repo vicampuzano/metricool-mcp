@@ -41,6 +41,17 @@ _CONNECT_TIMEOUT = float(os.environ.get("METRICOOL_CONNECT_TIMEOUT", "5"))
 _READ_TIMEOUT = float(os.environ.get("METRICOOL_READ_TIMEOUT", "20"))
 _TIMEOUT = (_CONNECT_TIMEOUT, _READ_TIMEOUT)
 
+# Media normalization gets its own, much longer read timeout: the backend has to
+# download the asset from a third party (Google Drive, Dropbox, an AI-generated
+# file) before it can answer, so it is legitimately slower than every other
+# endpoint. Measured in production: the 20s read timeout above produced 83
+# ReadTimeouts in 24h on this call alone (the previous 30s budget produced zero),
+# and each one cost a retry — roughly 40s per affected post, which starved the
+# request thread pool and made /health miss its own 10s probe. No other endpoint
+# ever hit 20s, so only this one is relaxed.
+_MEDIA_READ_TIMEOUT = float(os.environ.get("METRICOOL_MEDIA_READ_TIMEOUT", "40"))
+_MEDIA_TIMEOUT = (_CONNECT_TIMEOUT, _MEDIA_READ_TIMEOUT)
+
 # Upper bound on concurrent analytics queries when a call splits into several
 # incompatible field groups.
 _MAX_PARALLEL_QUERIES = 6
@@ -177,11 +188,14 @@ class MetricoolClient:
         Metricool infrastructure. Unlike the other endpoints, the response body
         is plain text (the new URL), so this does not go through ``_request``
         (which expects JSON). Auth failures still surface as TokenInvalidError.
+
+        Uses the longer _MEDIA_TIMEOUT: this call waits on a third-party
+        download, so the general read timeout is too tight for it.
         """
         url_ = f"{_BASE_URL}/api/actions/normalize/image/url"
         params = {"url": url, "folder": "PLANNER", "integrationSource": "MCP"}
         logger.debug("GET %s url=%s", url_, url)
-        resp = self._session.get(url_, params=params, timeout=_TIMEOUT)
+        resp = self._session.get(url_, params=params, timeout=_MEDIA_TIMEOUT)
         if resp.status_code in (401, 403):
             raise TokenInvalidError(resp.status_code, resp.text[:200])
         resp.raise_for_status()
