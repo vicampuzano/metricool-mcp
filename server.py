@@ -339,7 +339,8 @@ def get_best_time_to_post_by_network(
 
 
 _NETWORK_ALIASES = {"x": "twitter", "ig": "instagram", "fb": "facebook",
-                     "yt": "youtube", "tt": "tiktok", "li": "linkedin", "pin": "pinterest"}
+                     "yt": "youtube", "tt": "tiktok", "li": "linkedin", "pin": "pinterest",
+                     "gbp": "gmb"}
 
 
 def _resolve_networks(networks: list[str]) -> list[str]:
@@ -435,6 +436,7 @@ Media requirements:
 - YouTube: requires media (video) + youtube_title.
 - TikTok: requires media + tiktok_title.
 - Facebook REEL: requires video. Facebook STORY: requires media.
+- gmb (Google Business Profile): no network-specific data object — do not send gmbData.
 
 content_type applies to Instagram and Facebook only: POST (default), REEL, STORY,
 or TRIAL_REEL (Instagram only — a Trial Reel, shown to non-followers first;
@@ -488,7 +490,7 @@ def create_scheduled_post(
         blog_id: Blog id of the Metricool brand account (from get_brand_settings).
         date: Publication date/time, format YYYY-MM-DDTHH:mm:ss (e.g. 2025-03-15T14:30:00).
         timezone: IANA timezone (e.g. "Europe/Madrid"). Use the value from get_brand_settings.
-        networks: Social networks to publish to (e.g. ["twitter"] or ["twitter","instagram"]). Accepted: twitter, instagram, facebook, linkedin, bluesky, threads, pinterest, youtube, tiktok, twitch.
+        networks: Social networks to publish to (e.g. ["twitter"] or ["twitter","instagram"]). Accepted: twitter, instagram, facebook, linkedin, bluesky, threads, pinterest, youtube, tiktok, twitch, gmb (Google Business Profile).
         text: Post text content. Required for all networks except Instagram and Facebook Stories, where it is optional.
         media: List of public media URL strings (e.g. ["https://..."]). Use for links the user gave you or a carousel of several images. Combined with media_file. At least one of media/media_file is required for Instagram, Pinterest, YouTube, TikTok.
         media_file: A single file object {"download_url": "https://...", "file_id": "..."} for a file the user attached/dropped in the chat or that you (ChatGPT) generated — ChatGPT fills this automatically. Never pass a local path like /mnt/data/...
@@ -598,6 +600,7 @@ Get the post id and uuid from get_scheduled_posts first.
 Ask the user to confirm what will be changed before proceeding.
 Include the full original content in the request, modifying only the fields that change.
 The same media, character-limit and Story-text rules as create_scheduled_post apply.
+gmb (Google Business Profile) has no network-specific data object — do not send gmbData.
 The response includes a `plannerUrl` for each post. After updating, ALWAYS SHOW the
 user this link so they can view or edit the post in Metricool.
 The date cannot be in the past. Do not retry on error.""",

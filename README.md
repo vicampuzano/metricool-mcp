@@ -14,7 +14,7 @@ With this connector you can manage **Instagram**, **Facebook**, **X (Twitter)**,
 
 ### Schedule and plan social media content
 
-Create, edit, and manage scheduled posts across all your connected social networks from a single conversation. Plan your social media calendar by asking Claude to schedule content on Instagram, Facebook, X (Twitter), LinkedIn, TikTok, YouTube, Pinterest, Twitch, Bluesky, or Threads — including network-specific formats like Instagram Reels, Instagram Stories, YouTube Shorts, Facebook Reels, LinkedIn polls, and TikTok videos.
+Create, edit, and manage scheduled posts across all your connected social networks from a single conversation. Plan your social media calendar by asking Claude to schedule content on Instagram, Facebook, X (Twitter), LinkedIn, TikTok, YouTube, Pinterest, Twitch, Bluesky, Threads, or Google My Business — including network-specific formats like Instagram Reels, Instagram Stories, YouTube Shorts, Facebook Reels, LinkedIn polls, and TikTok videos.
 
 ### Best time to post
 
@@ -42,7 +42,7 @@ View all your connected brands, social accounts, competitor tracking settings, a
 | Twitch | — | ✅ | — |
 | Bluesky | Posts | ✅ | — |
 | Threads | Posts | ✅ | — |
-| Google My Business | — | ✅ | — |
+| Google My Business | Posts | ✅ | — |
 
 ---
 
